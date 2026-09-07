@@ -12,7 +12,7 @@
 |---|---|---|
 | Unit | Individual functions/services (e.g. OTP hashing, token rotation logic, photo-validation checks, report-section assembly) | All backend modules |
 | Integration | A module's API endpoints against a real (test) database | All backend modules with persistence |
-| Component/UI | Individual React components and Redux slices in isolation | Frontend modules |
+| Component/UI | Individual React components and Zustand stores in isolation | Frontend modules |
 | End-to-end (E2E) | Full `WF-001` journey through a running frontend + backend | Cross-module |
 | Security-specific | Auth abuse paths (lockout, reuse detection), payment-gate bypass attempts, photo-validation bypass attempts | `authentication`, `payment`, `photo-upload-validation` |
 
@@ -24,7 +24,7 @@ This is a category-level mapping, not literal test cases — each row expands in
 |---|---|
 | `FR-001` (landing page) | Component: CTA renders and routes to signup. |
 | `AUTH-001`–`AUTH-012`, `WF-002` | Integration: full signup/login two-step flow (happy path); OTP expiry; OTP resend cooldown; 5-failed-attempt lockout; access-token expiry + silent refresh; refresh-token rotation; **refresh-token reuse → whole family revoked** (this specific case is easy to omit and is a named client security requirement — do not skip it); logout revocation. |
-| `FE-001`–`FE-007` | Component/unit: Redux auth slice state transitions; API client attaches token and retries once on 401-then-refresh; UI never imports auth API calls directly (can be enforced via lint boundary rather than a runtime test — see `docs/security.md`/`docs/architecture.md` §5 on module boundaries). |
+| `FE-001`–`FE-007` | Component/unit: Zustand auth store state transitions; API client attaches token and retries once on 401-then-refresh; UI never imports auth API calls directly (can be enforced via lint boundary rather than a runtime test — see `docs/security.md`/`docs/architecture.md` §5 on module boundaries). |
 | `FR-003`, `FR-004`, `BR-003` | Integration: questionnaire submission rejected server-side when `disclaimer_accepted` is false, even if the client bypasses the UI gate. |
 | `FR-005`, `FR-006`, `BR-005` | Integration: each validation check (face count, frame proportion, occlusion, resolution, brightness) individually triggers a rejection with the correct reason; a fully-compliant photo set passes. |
 | `BR-004` | Integration: analysis pipeline cannot be triggered from a photo set with `validation_status = failed`. |
@@ -45,7 +45,7 @@ This is a category-level mapping, not literal test cases — each row expands in
 
 ## 4. Environments
 
-- **Test database:** a dedicated Postgres instance/schema, not the Supabase project used for development or production data — not explicitly specified by the client; **[Recommendation]** to avoid test runs mutating real data.
+- **Test database:** a dedicated Postgres instance/schema, separate from the one used for development or production data — not explicitly specified by the client; **[Recommendation]** to avoid test runs mutating real data.
 - **External services in tests:** OpenAI, Stripe, and the email/OTP provider should be mocked/stubbed in unit and integration tests; a smaller set of manual or sandbox-mode (e.g. Stripe test mode) checks can cover real integration behavior before release. Not specified by the client — **[Recommendation]**, standard practice given `BR-006` (third-party costs are the client's responsibility — tests should not incur avoidable usage costs).
 
 ## 5. Out of Scope for Phase 1 Testing
@@ -57,7 +57,7 @@ No admin-panel, email-notification, PayPal, tracking-pixel, AI-visual-feature, o
 | Item | Status |
 |---|---|
 | Photo-validation exact thresholds | Deferred (`ASM-002`) — test cases for validation boundaries can only be finalized once thresholds are set; write them against configuration values, not hardcoded numbers. |
-| Test framework choice (pytest, Vitest/Jest, Playwright/Cypress for E2E) | Not specified by the client — **[Recommendation]**, to be decided consistent with the FastAPI/React stack during `project-foundation` implementation. |
+| Test framework choice (Vitest/Jest for unit/component, Playwright/Cypress for E2E) | Not specified by the client — **[Recommendation]**, to be decided consistent with the TypeScript/Next.js stack during `project-foundation` implementation. Superseded in v1.2: pytest is no longer relevant now that the backend is TypeScript, not Python. |
 
 ## 7. Related Documents
 

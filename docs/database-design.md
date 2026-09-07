@@ -2,7 +2,7 @@
 
 **Source of truth:** [`client_requirements.md`](./client_requirements.md) (`DATA-*`). Auth-specific entities are elaborated here but their behavioral rules live in [`docs/authentication.md`](./authentication.md).
 
-**Status:** Draft, high-level entity design. `client_requirements.md` explicitly scopes full column-level schema to this document (Section 9), but does not itself specify column types/lengths — those below marked **[Recommendation]** are technical proposals, not client-stated requirements. Database: Supabase-hosted Postgres, ORM: SQLAlchemy, migrations: Alembic (`NFR-002`–`NFR-004`).
+**Status:** Draft, high-level entity design. `client_requirements.md` explicitly scopes full column-level schema to this document (Section 9), but does not itself specify column types/lengths — those below marked **[Recommendation]** are technical proposals, not client-stated requirements. Database: vendor-neutral PostgreSQL, ORM: Prisma, migrations: Prisma Migrate (`NFR-002`–`NFR-004`, superseded in v1.2 from Supabase Postgres/SQLAlchemy/Alembic).
 
 ---
 
@@ -71,7 +71,7 @@ Exact cardinalities (e.g. whether a user can have multiple in-flight reports) ar
 | id | |
 | user_id | |
 | angle | Which of the multi-angle set this is (`FR-005`) |
-| storage_reference | Where the file lives — storage mechanism not specified by the client; **[Open Question]** whether photos live in Supabase Storage or elsewhere |
+| storage_reference | Where the file lives — storage mechanism not specified by the client; **[Open Question]**, and now more open as of v1.2 since Supabase (and its bundled Storage product) is no longer part of the stack — candidates include S3-compatible object storage or another provider, to be decided during the `photo-upload-validation` module's implementation |
 | validation_status | Pass/fail (`BR-005`) |
 | validation_result | Structured detail on which check(s) failed, for the rejection-reason UI (`docs/ui-ux-design.md` §3.4) |
 | uploaded_at | |
@@ -113,14 +113,14 @@ Per `client_requirements.md` Section 9: Admin/reviewer accounts, report review h
 
 ## 4. Migrations
 
-Alembic (`NFR-003`) manages schema evolution. Because several fields above are intentionally under-specified (questionnaire answer shape, measurement shape, report section shape — all recommended as JSON precisely to avoid migration churn while those are still moving), initial migrations should favor flexible JSON columns for content that is still in flux, and normalize into dedicated columns/tables later only once the shape is stable — this is a **[Recommendation]**, not a client instruction, aimed at reducing migration thrash during a from-scratch build.
+Prisma Migrate (`NFR-003`) manages schema evolution against `schema.prisma`. Because several fields above are intentionally under-specified (questionnaire answer shape, measurement shape, report section shape — all recommended as JSON precisely to avoid migration churn while those are still moving), initial migrations should favor Prisma's `Json` column type for content that is still in flux, and normalize into dedicated models/relations later only once the shape is stable — this is a **[Recommendation]**, not a client instruction, aimed at reducing migration thrash during a from-scratch build.
 
 ## 5. Open Questions
 
 | Item | Status |
 |---|---|
 | Can a user have multiple reports? | Not stated — **[Open Question]** for `report-generation` module. |
-| Photo storage mechanism (Supabase Storage vs. other) | Not stated — **[Open Question]**. |
+| Photo storage mechanism (object storage provider, now that Supabase Storage is off the table as of v1.2) | Not stated — **[Open Question]**. |
 | Password hashing algorithm | Not stated — **[Recommendation]**, see `docs/security.md` §7. |
 
 ## 6. Related Documents

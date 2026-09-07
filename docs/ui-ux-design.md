@@ -41,7 +41,7 @@ Single, clear CTA leading into signup (`FR-001`). No further content requirement
 ### 3.2 Auth Screens (Signup / Login / OTP)
 - Signup and login share the same two-step interaction shape (email+password → OTP) — see `docs/authentication.md` §2. The UI should reuse one OTP-entry component for both flows rather than building two.
 - OTP screen must surface: countdown/expiry (10 min), a resend action respecting the 60s cooldown, and a clear lockout message after 5 failed attempts (15 min) — these are the exact values in `AUTH-011`, not placeholders.
-- Per `FE-007`, none of these screens talk to auth APIs directly — they dispatch to the Redux auth slice, which the API client acts on (see `docs/architecture.md` §3).
+- Per `FE-007`, none of these screens talk to auth APIs directly — they dispatch to the Zustand auth store, which the API client acts on (see `docs/architecture.md` §3).
 
 ### 3.3 Onboarding Questionnaire
 - 23 questions with branching logic (`FR-003`); the literal question text/branching tree is not in `client_requirements.md` and is flagged as an open item in `docs/prd.md` §7 — do not invent questionnaire content beyond the stated categories (medical conditions/medications, self-perceived best feature, comfort with recommendation types, appearance-thought frequency, similar lifestyle/self-perception questions).
@@ -67,7 +67,7 @@ When a refresh attempt fails, the frontend must clear auth state and redirect to
 
 ## 4. Cross-Cutting UX Rules
 
-- Auth state/token handling never appears in UI component logic (`FE-007`) — screens only dispatch actions/read Redux state.
+- Auth state/token handling never appears in UI component logic (`FE-007`) — screens only dispatch actions/read Zustand store state.
 - Any screen that depends on auth (onboarding onward) must respect the silent-refresh behavior (`FE-005`): an expired access token should not visibly interrupt the user mid-task.
 - No accessibility, responsive-breakpoint, or localization requirements are stated by the client — **[Open Question/Assumption]**: flag with the client if these matter for Phase 1, otherwise treat as delivery-team defaults during implementation.
 

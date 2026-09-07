@@ -26,7 +26,7 @@ Security concerns that cut across modules, rather than living inside any one mod
 
 ## 3. Token Storage Trade-off (cross-reference)
 
-The client explicitly chose Redux-store token storage over `localStorage` (`FE-002`) and, earlier, over `httpOnly` cookies (`OQ-009`, resolved). The residual XSS exposure this carries, and why it's an accepted trade-off rather than an oversight, is documented in [`docs/authentication.md`](./authentication.md) §8 (`ASM-001`). The mitigations that matter here are standard web hardening, not token-storage changes:
+The client explicitly chose client-side JS store token storage (originally Redux, now Zustand as of v1.2 — see `NFR-006`) over `localStorage` (`FE-002`) and, earlier, over `httpOnly` cookies (`OQ-009`, resolved). The residual XSS exposure this carries, and why it's an accepted trade-off rather than an oversight, is documented in [`docs/authentication.md`](./authentication.md) §8 (`ASM-001`). The mitigations that matter here are standard web hardening, not token-storage changes:
 
 - Content-Security-Policy (CSP) restricting script sources.
 - Consistent output encoding to prevent script injection into rendered content.

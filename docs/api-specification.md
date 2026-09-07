@@ -2,7 +2,7 @@
 
 **Source of truth:** [`client_requirements.md`](./client_requirements.md) (`AUTH-001`–`AUTH-012`, `WF-002`, `FR-*`). This is a **preliminary, high-level contract** — request/response field-level schemas will be finalized during each module's implementation (see each module's `plans.md` under `D:\zzz\`), not fixed here.
 
-**Status:** Draft. Backend framework: FastAPI (`NFR-001`). All endpoints below are versionless placeholders (e.g. `/auth/...`) pending an actual routing convention decision at implementation time.
+**Status:** Draft. Backend framework: Next.js Route Handlers, TypeScript (`NFR-001`, superseded in v1.2 from FastAPI). All endpoints below are versionless placeholders (e.g. `/auth/...`) pending an actual routing convention decision at implementation time — in the Next.js App Router these map to files under an `app/api/.../route.ts` structure, but the logical path/method contract below is unaffected by that file-layout detail.
 
 ---
 
@@ -23,7 +23,7 @@
 | `POST /auth/refresh` | Exchange refresh token for new access token; rotates refresh token; revokes family on reuse | No (refresh token is the credential) | `AUTH-010`, `AUTH-012` |
 | `POST /auth/logout` | Revoke current refresh token server-side | Yes | `AUTH-010`, `FE-006` |
 
-Response from `otp/verify` and `refresh` includes both the access token and refresh token, which the frontend places into the Redux auth store (`FE-002`) — the API itself is storage-agnostic; storage location is a frontend architectural decision documented in `docs/architecture.md` §3.
+Response from `otp/verify` and `refresh` includes both the access token and refresh token, which the frontend places into the Zustand auth store (`FE-002`) — the API itself is storage-agnostic; storage location is a frontend architectural decision documented in `docs/architecture.md` §3.
 
 ## 3. User Profile
 

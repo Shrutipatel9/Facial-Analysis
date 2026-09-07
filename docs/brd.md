@@ -42,7 +42,7 @@ Admin panel and full report status workflow (Draft → Pending Review → Approv
 | Admin | Reviews/edits/verifies/publishes AI-generated reports, manages recommendation content. Not built in Phase 1, but the data model reserves a `role` field (`AUTH-009`) so this can be added later without a schema rework. | 2 (data model prepared in Phase 1) |
 | Project Sponsor | Jay Michaels — business decision-maker for scope/requirements. | — |
 | Delivery team | Crest Infosystems. | — |
-| Third-party systems | OpenAI (narrative analysis), MediaPipe/OpenCV (local libraries, not a service), Stripe (payments), Supabase (Postgres hosting only, **not** auth), an email-based OTP provider (channel confirmed, specific vendor TBD). | 1 |
+| Third-party systems | OpenAI (narrative analysis), MediaPipe/OpenCV (local libraries, not a service), Stripe (payments), a PostgreSQL database (hosting provider TBD, **not** auth — Supabase no longer part of the stack as of v1.2, see `docs/architecture.md` §1), an email-based OTP provider (channel confirmed, specific vendor TBD). | 1 |
 
 ## 5. Business Rules
 
@@ -53,7 +53,7 @@ Admin panel and full report status workflow (Draft → Pending Review → Approv
 | BR-003 | The BDD/informational-only disclaimer checkbox is a hard, non-optional gate before questionnaire submission. |
 | BR-004 [Recommendation] | Because Phase 1 has no admin safety net before publishing, the AI pipeline must not run on photos that fail validation — this avoids auto-publishing a low-quality report straight to a paying user. |
 | BR-005 | Photo validation is enforced by the backend, not a self-attestation checklist. Recommended checks: exactly one face detected; face occupies a reasonable frame proportion; no obvious occlusion (glasses/hat) over eyes/mouth; minimum resolution; basic brightness/exposure check. Exact thresholds are deliberately deferred to development time (`ASM-002`). |
-| BR-006 | Third-party usage costs (OpenAI, Stripe, Supabase, email/OTP provider) are the client's own responsibility, not included in any development estimate. |
+| BR-006 | Third-party usage costs (OpenAI, Stripe, the PostgreSQL hosting provider once chosen, email/OTP provider) are the client's own responsibility, not included in any development estimate. |
 | BR-007 | No committed timeline or re-estimate is being produced; Phase 1 is scoped by feature list, not hours/dollars, until the client asks otherwise. |
 | BR-008 | Report content must cover exactly 11 features (`FR-009`) — a fixed structural rule benchmarked against a reference Qoves sample report, not a suggestion. |
 
@@ -62,7 +62,7 @@ Admin panel and full report status workflow (Draft → Pending Review → Approv
 | ID | Constraint |
 |---|---|
 | CON-001 | From-scratch build — no existing codebase/MVP claims apply. |
-| CON-002 | Supabase must not be used for authentication — Postgres hosting only. |
+| CON-002 | No third-party authentication-as-a-service (e.g. Supabase Auth, Auth0, Firebase Auth) may be used as the application's authentication mechanism (generalized in v1.2; Supabase itself is no longer part of the stack in any role). |
 | CON-003 | No client-supplied branding/design assets exist yet; the delivery team owns UI/branding decisions for Phase 1 (see `docs/ui-ux-design.md`). |
 | CON-004 | Third-party service costs are billed to and owned by the client. |
 | CON-005 | No committed delivery timeline or dollar estimate exists, and none has been requested. |

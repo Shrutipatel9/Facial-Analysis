@@ -13,7 +13,7 @@
 | AUTH-001 | Custom, backend-controlled auth. No Supabase Auth or any auth-as-a-service. |
 | AUTH-002 | JWT access token + refresh token pair. |
 | AUTH-005 | Backend APIs solely responsible for authentication and authorization — no delegation. |
-| FE-002 | Both tokens stored in the Redux auth store — explicitly **not** `localStorage`. |
+| FE-002 | Both tokens stored in the Zustand auth store — explicitly **not** `localStorage`. |
 
 ## 2. Flow Shape (identical for signup and login)
 
@@ -42,10 +42,10 @@ Step 2: OTP Verification
 
 1. **Request:** frontend API client attaches the access token to each request (`FE-004`).
 2. **Validation:** backend validates the JWT on protected routes before allowing access (`AUTH-007`).
-3. **Refresh:** when the access token expires (15 min), the frontend calls the refresh endpoint with the refresh token → backend validates it against the revocation store (`AUTH-010`) → issues a new access token and **rotates** the refresh token → frontend updates the Redux auth store transparently (`FE-005`), invisible to the UI.
+3. **Refresh:** when the access token expires (15 min), the frontend calls the refresh endpoint with the refresh token → backend validates it against the revocation store (`AUTH-010`) → issues a new access token and **rotates** the refresh token → frontend updates the Zustand auth store transparently (`FE-005`), invisible to the UI.
 4. **Reuse detection:** if a refresh token that was already rotated out is presented again, the **entire token family is revoked** and the user must re-authenticate — this is a theft signal, not a normal error path.
-5. **Logout:** frontend calls logout → backend revokes the refresh token server-side (`AUTH-010`) → frontend clears the Redux auth store (`FE-006`).
-6. **Session expiry / invalid session:** any refresh failure (expired, revoked, or reused/rotated-out token) → backend returns an auth error → frontend clears Redux auth state and redirects to login (`FE-006`).
+5. **Logout:** frontend calls logout → backend revokes the refresh token server-side (`AUTH-010`) → frontend clears the Zustand auth store (`FE-006`).
+6. **Session expiry / invalid session:** any refresh failure (expired, revoked, or reused/rotated-out token) → backend returns an auth error → frontend clears Zustand auth state and redirects to login (`FE-006`).
 
 ## 4. Security Parameters (settled — do not rederive)
 
@@ -69,9 +69,9 @@ These were explicitly delegated to the delivery team by the client ("decide by y
 
 | ID | Requirement |
 |---|---|
-| FE-001 | Auth state managed via Redux / Redux Toolkit. |
-| FE-002 | Access + refresh tokens live in the Redux auth store, not `localStorage` (client-confirmed, overriding the earlier default recommendation). |
-| FE-003 | Centralized in a single auth slice/service — not duplicated across components. |
+| FE-001 | Auth state managed via Zustand. |
+| FE-002 | Access + refresh tokens live in the Zustand auth store, not `localStorage` (client-confirmed, overriding the earlier default recommendation). |
+| FE-003 | Centralized in a single auth store/service — not duplicated across components. |
 | FE-004 | Access token automatically attached to authenticated requests via a centralized API client/interceptor. |
 | FE-005 | Expired access token triggers a silent refresh-and-retry, transparent to the UI, where possible. |
 | FE-006 | Invalid session (refresh fails/revoked) clears auth state and redirects to login. |
@@ -83,7 +83,7 @@ These were explicitly delegated to the delivery team by the client ("decide by y
 
 ## 8. Residual Risk (ASM-001 — document, don't "fix")
 
-Storing both tokens in Redux (not `localStorage`) avoids a script scraping tokens out of generic browser storage across sessions/tabs, which is the specific risk many XSS payloads target by default. It does **not** eliminate XSS exposure in principle: any script executing in the page's own JS context can, in theory, still reach in-memory Redux state. This is a **settled implementation decision**, not an open question — the client explicitly chose it. The actual mitigation layer is standard XSS hardening (CSP, output encoding, dependency hygiene), covered in [`docs/security.md`](./security.md). Do not propose moving tokens to `httpOnly` cookies as a "fix" — that was considered and explicitly rejected in favor of Redux (`OQ-009`, resolved).
+Storing both tokens in Zustand (not `localStorage`) avoids a script scraping tokens out of generic browser storage across sessions/tabs, which is the specific risk many XSS payloads target by default. It does **not** eliminate XSS exposure in principle: any script executing in the page's own JS context can, in theory, still reach in-memory Zustand state. This is a **settled implementation decision**, not an open question — the client explicitly chose it. The actual mitigation layer is standard XSS hardening (CSP, output encoding, dependency hygiene), covered in [`docs/security.md`](./security.md). Do not propose moving tokens to `httpOnly` cookies as a "fix" — that was considered and explicitly rejected in favor of Zustand (`OQ-009`, resolved).
 
 ## 9. Endpoints (summary — full contracts in api-specification.md)
 

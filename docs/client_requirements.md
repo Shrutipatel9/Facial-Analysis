@@ -6,14 +6,15 @@
 |---|---|
 | Document name | `client_requirements` |
 | Role | **Single source of truth** for the entire project. All other project documents (`PRD.md`, `BRD.md`, `ARCHITECTURE.md`, `TECHNICAL_DESIGN.md`, `API_SPECIFICATION.md`, `DATABASE_DESIGN.md`, `UI_UX_REQUIREMENTS.md`, `AUTHENTICATION.md`, `SECURITY.md`, `TESTING.md`, `DEPLOYMENT.md`, and any future specialized doc) must be derived from and validated against this document, not the other way around. |
-| Version | 1.1 |
+| Version | 1.2 |
 | Status | Draft — active project, expected to evolve |
 | Last updated | 2026-09-07 |
-| Supersedes | v1.0 of this document. v1.0 superseded the two earlier "Developer Project Overview" drafts. |
-| Sources this document is built from | `Discussion.docx`, `AI Facial Analysis_Proposal.docx`, `AI Facial Analysis Proposal.docx.pdf`, `Estimation.xlsx`, `protocol_report (3).pdf`, `Qoves Onboarding.mp4`, `Screenshot 2026-06-12 at 10.51.25.png` (original requirement materials) + direct client decisions given in conversation on 2026-09-07 (Phase 1 scope decisions, custom-authentication + Redux + documentation-hierarchy requirements, and the v1.1 answers resolving most of v1.0's open questions). |
+| Supersedes | v1.1 of this document. v1.1 superseded v1.0, which superseded the two earlier "Developer Project Overview" drafts. |
+| Sources this document is built from | `Discussion.docx`, `AI Facial Analysis_Proposal.docx`, `AI Facial Analysis Proposal.docx.pdf`, `Estimation.xlsx`, `protocol_report (3).pdf`, `Qoves Onboarding.mp4`, `Screenshot 2026-06-12 at 10.51.25.png` (original requirement materials) + direct client decisions given in conversation on 2026-09-07 (Phase 1 scope decisions, custom-authentication + Redux + documentation-hierarchy requirements, the v1.1 answers resolving most of v1.0's open questions, and the v1.2 tech-stack revision). |
 
 ### Change log
-- **v1.1 (2026-09-07):** Resolved 8 of the 9 open questions from v1.0 — see Section 14 for the full resolution table. Key changes: authentication flow is now fully specified (email + password, then OTP, for both signup and login); frontend framework confirmed as React + Vite; ORM confirmed as SQLAlchemy; OTP delivery channel confirmed as email; refresh-token storage confirmed as the Redux store (explicitly not `localStorage`); OTP/token lifetime values decided (client delegated this to the delivery team "considering security"); hosting decision explicitly deferred (not needed right now); photo-validation thresholds explicitly deferred to development time. Only report pricing (OQ-002) remains genuinely open, at the client's request.
+- **v1.2 (2026-09-07):** Client-requested tech-stack revision, applied across the stack requirements only — no business/functional/auth-flow requirement changed. Backend framework changed from Python + FastAPI to **TypeScript + Next.js**; because Next.js is a full-stack framework, the frontend is consolidated into the same Next.js application rather than remaining a separate Vite + React app (see `NFR-005` note) — this is a delivery-team interpretation of a brief client instruction ("use typescript and nextjs in backend"), flagged in `ASM-004` for client confirmation. Database changed from Supabase-hosted Postgres to a vendor-neutral **PostgreSQL** requirement (`NFR-002`) — Supabase is no longer part of the stack in any role, which also retires `CON-002`'s Supabase-specific wording (generalized instead, see `CON-002`). ORM changed from SQLAlchemy to **Prisma** (`NFR-004`); migrations changed from Alembic to **Prisma Migrate** (`NFR-003`) — both are delivery-team choices consistent with the new TypeScript stack, not separately client-specified. Frontend state management changed from Redux/Redux Toolkit to **Zustand** (`NFR-006`, `FE-001`, `FE-002`) per client instruction to use "another [library] for store management according to Next.js" — the same layering contract and Redux-not-`localStorage` token-storage decision (`ASM-001`) carry over unchanged, only the library name changes.
+- **v1.1 (2026-09-07):** Resolved 8 of the 9 open questions from v1.0 — see Section 14 for the full resolution table. Key changes: authentication flow is now fully specified (email + password, then OTP, for both signup and login); frontend framework confirmed as React + Vite (**superseded in v1.2**); ORM confirmed as SQLAlchemy (**superseded in v1.2**); OTP delivery channel confirmed as email; refresh-token storage confirmed as the Redux store (**library superseded in v1.2 — see Zustand**, storage location/rationale unchanged); OTP/token lifetime values decided (client delegated this to the delivery team "considering security"); hosting decision explicitly deferred (not needed right now); photo-validation thresholds explicitly deferred to development time. Only report pricing (OQ-002) remains genuinely open, at the client's request.
 - **v1.0 (2026-09-07):** Initial source-of-truth document, consolidating all original requirement materials plus the client's Phase 1 scope decisions and custom-authentication/Redux/documentation-hierarchy requirements.
 
 ### How to use this document
@@ -69,7 +70,7 @@
 - **Admin** — Phase 2 only. Will review, edit, verify, and publish AI-generated reports, and manage recommendation content. Not built in Phase 1, but the data model must not preclude adding this role later (see AUTH-009).
 - **Project Sponsor** — Jay Michaels; the business decision-maker for scope and requirements.
 - **Delivery team** — Crest Infosystems.
-- **System/third-party actors** — OpenAI (Vision/GPT for narrative analysis), MediaPipe/OpenCV (local CV libraries, not third-party services), Stripe (payments), Supabase (Postgres database hosting only — **not** used for authentication, see Section 5), an email-based OTP delivery provider (channel confirmed as email; specific provider e.g. SendGrid/SES/Postmark still to be chosen during development).
+- **System/third-party actors** — OpenAI (Vision/GPT for narrative analysis), MediaPipe/OpenCV (local CV libraries, not third-party services), Stripe (payments), a PostgreSQL database (hosting provider not yet decided, see `NFR-010`; **not** Supabase as of v1.2, and never used for authentication regardless of hosting provider — see Section 5), an email-based OTP delivery provider (channel confirmed as email; specific provider e.g. SendGrid/SES/Postmark still to be chosen during development).
 
 ---
 
@@ -99,12 +100,12 @@
 
 ## 5. Authentication & Authorization Requirements (`AUTH-*` / `FE-*`)
 
-This section reflects a **direct client decision that overrides the earlier recommendation to use Supabase Auth**. Supabase remains in the stack only as the Postgres database host (see NFR-002); it must **not** be used as the application's authentication mechanism. As of v1.1, the authentication flow itself is fully specified (see WF-002).
+This section reflects a **direct client decision that overrides the earlier recommendation to use Supabase Auth**. As of v1.2, Supabase is no longer part of the stack in any role (see `NFR-002`) — the constraint below is generalized to any third-party auth-as-a-service, not specific to Supabase. As of v1.1, the authentication flow itself is fully specified (see WF-002).
 
 ### 5.1 Backend authentication requirements
 | ID | Requirement | Source |
 |---|---|---|
-| AUTH-001 | Authentication must be a custom, backend-controlled flow. Do **not** use Supabase Auth (or any third-party auth-as-a-service) as the application's direct authentication mechanism. | Client-stated |
+| AUTH-001 | Authentication must be a custom, backend-controlled flow. Do **not** use Supabase Auth, Auth0, Firebase Auth, or any third-party auth-as-a-service as the application's direct authentication mechanism. | Client-stated |
 | AUTH-002 | JWT-based authentication using an access token + refresh token pair. | Client-stated |
 | AUTH-003 | Both **signup** and **login** follow the same two-step shape: (1) email + password submitted first; (2) once that step succeeds, an OTP is sent and must be verified; only after OTP verification does signup/login complete and tokens get issued. OTP is a mandatory second step in both flows, not an alternative to the password step. | Client-stated (confirmed v1.1) — see WF-002 for the full flow |
 | AUTH-004 | Secure token generation, validation, refresh, and expiration handling, fully owned by the backend. | Client-stated |
@@ -120,9 +121,9 @@ This section reflects a **direct client decision that overrides the earlier reco
 ### 5.2 Frontend token management requirements
 | ID | Requirement | Source |
 |---|---|---|
-| FE-001 | Authentication state managed via Redux / Redux Toolkit. | Client-stated |
-| FE-002 | The authenticated user's token/session information (access token **and** refresh token) is stored in the Redux auth store. Explicitly **not** `localStorage` — confirmed directly by the client. See ASM-001 for the residual security note this still carries. | Client-stated (confirmed v1.1, resolves former OQ-009) |
-| FE-003 | Authentication state and token handling must be centralized (a single auth slice/service), not duplicated across components. | Client-stated |
+| FE-001 | Authentication state managed via **Zustand** (superseded in v1.2 — was Redux / Redux Toolkit). | Client-stated (v1.2) |
+| FE-002 | The authenticated user's token/session information (access token **and** refresh token) is stored in the Zustand auth store (superseded in v1.2 — was the Redux store; storage location/rationale is otherwise unchanged). Explicitly **not** `localStorage` — confirmed directly by the client. See ASM-001 for the residual security note this still carries. | Client-stated (confirmed v1.1, library superseded v1.2, resolves former OQ-009) |
+| FE-003 | Authentication state and token handling must be centralized (a single auth store/service), not duplicated across components. | Client-stated |
 | FE-004 | The access token must be automatically attached to authenticated API requests (e.g., via a centralized API client/interceptor). | Client-stated |
 | FE-005 | Token expiration must be handled automatically using the refresh-token flow — an expired access token should trigger a silent refresh-and-retry, transparent to the UI, where possible. | Client-stated |
 | FE-006 | When the session becomes invalid (refresh fails, token revoked, etc.), the app must clear authentication state and redirect the user to log in again. | Client-stated |
@@ -132,13 +133,15 @@ This section reflects a **direct client decision that overrides the earlier reco
 The client has specified this exact layering, and it must be preserved in any derived architecture/technical-design document:
 
 ```
-UI → Redux Auth Store → API Client → Backend Auth APIs → JWT/OTP Services
+UI → Zustand Auth Store → API Client → Backend Auth APIs → JWT/OTP Services
 ```
 
+(Superseded in v1.2 — the store layer was previously named "Redux Auth Store"; the contract itself — single source of truth, no direct UI-to-API/token access, centralized API client — is unchanged, only the library changed from Redux to Zustand.)
+
 - **UI** — presentational components; no direct API or token access.
-- **Redux Auth Store** — single source of truth for auth state (user, both tokens, auth status) on the frontend; the confirmed storage location for tokens (FE-002).
-- **API Client** — centralized HTTP client that reads tokens from the Redux store, attaches them to requests, and handles refresh-on-401.
-- **Backend Auth APIs** — FastAPI endpoints for register (email+password → OTP), login (email+password → OTP), OTP verify, refresh, logout, and protected-route dependencies for JWT validation.
+- **Zustand Auth Store** — single source of truth for auth state (user, both tokens, auth status) on the frontend; the confirmed storage location for tokens (FE-002).
+- **API Client** — centralized HTTP client that reads tokens from the Zustand store, attaches them to requests, and handles refresh-on-401.
+- **Backend Auth APIs** — Next.js Route Handlers (TypeScript) for register (email+password → OTP), login (email+password → OTP), OTP verify, refresh, logout, and protected-route middleware/helpers for JWT validation. (Superseded in v1.2 — previously FastAPI endpoints.)
 - **JWT/OTP Services** — backend-internal services for token issuance/validation and OTP generation/verification (email delivery), decoupled from the route handlers themselves.
 
 ---
@@ -147,12 +150,12 @@ UI → Redux Auth Store → API Client → Backend Auth APIs → JWT/OTP Service
 
 | ID | Requirement | Source |
 |---|---|---|
-| NFR-001 | Backend: Python + FastAPI. | Client-stated |
-| NFR-002 | Database: Supabase Postgres, used strictly as a managed Postgres database — **not** for authentication (see AUTH-001). | Client-stated |
-| NFR-003 | Database migrations: Alembic. | Client-stated |
-| NFR-004 | ORM: **SQLAlchemy**, confirmed. | Client-confirmed (v1.1, resolves former OQ-005) |
-| NFR-005 | Frontend framework: **React + Vite**, confirmed. (Next.js, mentioned in early pre-negotiation materials, is superseded.) | Client-confirmed (v1.1, resolves former OQ-006) |
-| NFR-006 | Frontend state management: Redux / Redux Toolkit, at minimum for authentication state (Section 5.2). | Client-stated |
+| NFR-001 | Backend: **TypeScript + Next.js** (superseded in v1.2 — was Python + FastAPI). | Client-stated (v1.2) |
+| NFR-002 | Database: **PostgreSQL**, vendor-neutral (superseded in v1.2 — was Supabase-hosted Postgres specifically; Supabase is no longer part of the stack in any role, including as auth — see `CON-002`). Hosting provider for the Postgres instance remains undecided, consistent with `NFR-010`. | Client-stated (v1.2) |
+| NFR-003 | Database migrations: **Prisma Migrate** (superseded in v1.2 — was Alembic; changed as a consequence of the ORM change below, not separately client-specified). | Decided by delivery team (v1.2), consistent with `NFR-004` |
+| NFR-004 | ORM: **Prisma** (superseded in v1.2 — was SQLAlchemy; SQLAlchemy is Python-only and cannot run on the new TypeScript backend). | Decided by delivery team (v1.2), consequence of `NFR-001` |
+| NFR-005 | Frontend framework: **Next.js** (superseded in v1.2 — was React + Vite as a separate app, confirmed in v1.1; consolidated into the same Next.js application introduced by `NFR-001` since Next.js is a full-stack framework). This consolidation is a delivery-team interpretation of the client's brief instruction, not explicitly confirmed — see `ASM-004`. | Client-stated (v1.2, backend framework); delivery-team interpretation (frontend consolidation) — see `ASM-004` |
+| NFR-006 | Frontend state management: **Zustand**, at minimum for authentication state (Section 5.2) (superseded in v1.2 — was Redux / Redux Toolkit). Client instruction: use "another [library] for store management according to Next.js." | Client-stated (v1.2) |
 | NFR-007 | Facial analysis engine: MediaPipe + OpenCV, built from scratch. | Client-stated |
 | NFR-008 | AI narrative/recommendation generation: OpenAI (Vision + GPT). | Client-stated |
 | NFR-009 | Payments: Stripe in Phase 1; PayPal deferred to Phase 2. | Client-stated |
@@ -169,7 +172,7 @@ UI → Redux Auth Store → API Client → Backend Auth APIs → JWT/OTP Service
 - **BR-003** [Client-stated] The BDD/informational-only disclaimer checkbox is a hard, non-optional gate before questionnaire submission.
 - **BR-004** [Recommendation] Because Phase 1 has no admin safety net before publishing, the AI pipeline should not run — and no report should be generated — from photos that fail validation (BR-005), to avoid auto-publishing a low-quality report straight to a paying user.
 - **BR-005** [Client-stated + delegated mechanism] Photo validation must be enforced by the backend, not left as a self-attestation checklist. Recommended checks: exactly one face detected; face occupies a reasonable proportion of the frame; no obvious occlusion over eyes/mouth (glasses/hat); minimum resolution; basic brightness/exposure check. The client confirmed exact thresholds should be decided during development (ASM-002), not specified up front.
-- **BR-006** [Client-stated] Third-party usage costs (OpenAI, Stripe, Supabase, and the email/OTP delivery provider) are the client's own responsibility, not included in any development estimate.
+- **BR-006** [Client-stated] Third-party usage costs (OpenAI, Stripe, the PostgreSQL hosting provider once chosen, and the email/OTP delivery provider) are the client's own responsibility, not included in any development estimate. (Supabase-specific wording removed in v1.2 — see `NFR-002`.)
 - **BR-007** [Client-stated] No committed timeline or re-estimate is being produced at this stage; Phase 1 is scoped by feature list (Sections 2 and 4), not by hours or dollars, until the client asks otherwise.
 - **BR-008** [Client-stated] Report content must reflect exactly 11 features (see FR-009) — this is a fixed structural rule, not a suggestion, derived directly from the reference Qoves sample report the client benchmarked their own draft report against.
 
@@ -200,9 +203,9 @@ Both **signup** and **login** follow the identical two-step shape:
    - On success: for signup, the account is marked verified; for login, the session is confirmed. Either way, the backend now issues a JWT access token + refresh token pair (AUTH-002, AUTH-012) and the flow completes as a successful signup or login.
    - On failure: an attempt counter increments; after 5 failed attempts, a 15-minute lockout applies (AUTH-011) before another OTP can be requested.
 3. **Authenticated requests:** frontend API client attaches the access token to each request (FE-004); backend validates the JWT on protected routes (AUTH-007).
-4. **Token refresh:** when the access token expires (15 minutes, AUTH-012), the frontend calls the refresh endpoint with the refresh token → backend validates it against its revocation store (AUTH-010), issues a new access token and rotates the refresh token → frontend updates the Redux auth store transparently (FE-005). If the presented refresh token was already rotated out (reuse), the whole token family is revoked and the user must log in again.
-5. **Logout:** frontend calls a logout endpoint → backend revokes the refresh token server-side (AUTH-010) → frontend clears the Redux auth store (FE-006).
-6. **Session expiry / invalid session:** if a refresh attempt fails (expired, revoked, or reused/rotated-out refresh token), the backend returns an auth error → frontend clears the Redux auth store and redirects to login (FE-006).
+4. **Token refresh:** when the access token expires (15 minutes, AUTH-012), the frontend calls the refresh endpoint with the refresh token → backend validates it against its revocation store (AUTH-010), issues a new access token and rotates the refresh token → frontend updates the Zustand auth store transparently (FE-005). If the presented refresh token was already rotated out (reuse), the whole token family is revoked and the user must log in again.
+5. **Logout:** frontend calls a logout endpoint → backend revokes the refresh token server-side (AUTH-010) → frontend clears the Zustand auth store (FE-006).
+6. **Session expiry / invalid session:** if a refresh attempt fails (expired, revoked, or reused/rotated-out refresh token), the backend returns an auth error → frontend clears the Zustand auth store and redirects to login (FE-006).
 
 ---
 
@@ -223,9 +226,9 @@ Both **signup** and **login** follow the identical two-step shape:
 ## 10. Constraints (`CON-*`)
 
 - **CON-001** [Client-stated] No existing codebase exists — this is a from-scratch build; nothing from the original pre-negotiation "existing MVP" claims applies.
-- **CON-002** [Client-stated] Supabase must not be used for authentication — Postgres hosting only.
+- **CON-002** [Client-stated, generalized in v1.2] No third-party authentication-as-a-service (e.g. Supabase Auth, Auth0, Firebase Auth) may be used as the application's authentication mechanism. (Prior to v1.2 this was worded Supabase-specifically, since Supabase was the database vendor at the time; Supabase is no longer part of the stack in any role as of v1.2 — see `NFR-002` — but the underlying rule is unchanged and generalizes to any such vendor.)
 - **CON-003** [Client-stated] No client-supplied branding/design assets exist yet for Phase 1 — the team owns UI/branding decisions for now.
-- **CON-004** [Client-stated] Third-party service costs (OpenAI, Stripe, Supabase, email/OTP provider) are billed to and owned by the client, not bundled into any dev estimate.
+- **CON-004** [Client-stated] Third-party service costs (OpenAI, Stripe, the PostgreSQL hosting provider once chosen, email/OTP provider) are billed to and owned by the client, not bundled into any dev estimate. (Supabase-specific wording removed in v1.2 — see `NFR-002`.)
 - **CON-005** [Client-stated] No committed delivery timeline or dollar estimate exists at this stage, and none has been requested.
 - **CON-006** [Recommendation] Because Phase 1 auto-publishes reports with no admin safety net, the enforced photo-validation step (BR-005) is a harder requirement here than it would be in a workflow with human review downstream.
 - **CON-007** [Client-stated] Hosting platform is explicitly undecided and not currently needed — do not assume Replit or any other specific host without a future decision.
@@ -236,9 +239,10 @@ Both **signup** and **login** follow the identical two-step shape:
 
 These are flagged separately per the documentation rules — they must stay visibly labeled as non-client-stated in any derived document until confirmed. As of v1.1, most former assumptions were resolved into confirmed requirements (see the Section 14 resolution table); the two below remain genuinely open or partially open.
 
-- **ASM-001 — Redux token storage, residual XSS note.** The client has now explicitly confirmed (FE-002) that both the access token and refresh token are stored in the Redux store, not `localStorage`. This avoids the specific risk of a token persisting across sessions/tabs in generic browser storage that many XSS payloads scrape by default. It does **not** fully eliminate XSS exposure in principle — any script running in the page's own JS context can, in theory, still reach in-memory Redux state. This is now a settled implementation decision, not an open question, but it is worth documenting explicitly in `SECURITY.md` as an accepted trade-off, with standard XSS hardening (CSP, output encoding, dependency hygiene) treated as the actual mitigation layer.
+- **ASM-001 — Client-side (Zustand) token storage, residual XSS note.** The client has now explicitly confirmed (FE-002) that both the access token and refresh token are stored in a client-side JS store, not `localStorage` — originally specified as Redux, the library itself was superseded by Zustand in v1.2 (the storage-location decision and its rationale are unchanged). This avoids the specific risk of a token persisting across sessions/tabs in generic browser storage that many XSS payloads scrape by default. It does **not** fully eliminate XSS exposure in principle — any script running in the page's own JS context can, in theory, still reach in-memory store state. This is now a settled implementation decision, not an open question, but it is worth documenting explicitly in `SECURITY.md` as an accepted trade-off, with standard XSS hardening (CSP, output encoding, dependency hygiene) treated as the actual mitigation layer.
 - **ASM-002 — Photo validation rule set.** The specific automated checks in BR-005 are this document's recommendation; the client confirmed the exact thresholds should be finalized during development rather than specified now. Should be documented in `TECHNICAL_DESIGN.md`/`TESTING.md` once implemented.
 - **ASM-003 — Payment model.** One-time payment per report (FR-016) is a recommendation; pricing itself remains explicitly open (OQ-002).
+- **ASM-004 — Next.js consolidation (v1.2).** The client's v1.2 instruction was "use typescript and nextjs in backend." Because Next.js is a full-stack React framework (it does not exist as a backend-only tool the way FastAPI does), the delivery team has interpreted this as consolidating the previously-separate React + Vite frontend into the same Next.js application, rather than running Next.js purely as an API server behind an unchanged standalone Vite frontend. This interpretation is **not explicitly confirmed by the client** and should be verified at the next opportunity. If the client actually intended to keep a separate Vite frontend calling a Next.js-only API backend, `NFR-005` and every derived document's architecture/folder-structure content built on this assumption will need to be revised.
 
 ---
 
@@ -262,7 +266,7 @@ Restated from Section 2.2 for clarity when this document is used to scope a spri
 | `AUTHENTICATION.md` | `AUTH-*`, `FE-*`, `WF-002`, `ASM-001` |
 | `SECURITY.md` | `AUTH-010`–`AUTH-012`, `ASM-001`, `BR-005`/`CON-006` |
 | `TESTING.md` | Every `FR-*`/`AUTH-*`/`BR-*` should map to at least one test case when this doc is written |
-| `DEPLOYMENT.md` | `NFR-010`/`CON-007` (hosting, currently undecided), `CON-002` (Supabase usage), `NFR-001`–`NFR-003` |
+| `DEPLOYMENT.md` | `NFR-010`/`CON-007` (hosting, currently undecided), `CON-002` (no third-party auth-as-a-service), `NFR-001`–`NFR-003` |
 
 Any derived document should cite requirement IDs from this table so a later change here can be traced forward to what it affects.
 
@@ -276,11 +280,11 @@ Any derived document should cite requirement IDs from this table so a later chan
 | OQ-001 | Login mechanism shape (password vs. OTP-only vs. both) | **Resolved** — both signup and login use email + password first, then a mandatory OTP verification step, then completion. See AUTH-003, WF-002. |
 | OQ-003 | Exact token/OTP lifetimes and thresholds | **Resolved** — client delegated this to the delivery team "considering security"; concrete values set in AUTH-010/011/012. |
 | OQ-004 | OTP delivery channel/provider | **Resolved (channel)** — email confirmed. Specific provider still to be picked during development (not blocking). See NFR-012. |
-| OQ-005 | ORM confirmation | **Resolved** — SQLAlchemy confirmed. See NFR-004. |
-| OQ-006 | Frontend framework | **Resolved** — React + Vite confirmed. See NFR-005. |
+| OQ-005 | ORM confirmation | **Resolved (v1.1), superseded (v1.2)** — SQLAlchemy confirmed in v1.1, replaced by Prisma in v1.2 as a consequence of the TypeScript backend change. See NFR-004. |
+| OQ-006 | Frontend framework | **Resolved (v1.1), superseded (v1.2)** — React + Vite confirmed in v1.1, consolidated into Next.js in v1.2. See NFR-005, ASM-004. |
 | OQ-007 | Hosting reconfirmation | **Resolved by deferral** — client confirmed no hosting decision is needed right now. See NFR-010, CON-007. |
 | OQ-008 | Exact automated photo-validation thresholds | **Resolved by deferral** — client confirmed these should be decided during development. See ASM-002. |
-| OQ-009 | Refresh token storage (Redux vs. `httpOnly` cookie) | **Resolved** — client confirmed Redux store, explicitly not `localStorage`. See FE-002, ASM-001. |
+| OQ-009 | Refresh token storage (client-side store vs. `httpOnly` cookie) | **Resolved** — client confirmed a client-side store (originally Redux, superseded by Zustand in v1.2 — see NFR-006), explicitly not `localStorage`. See FE-002, ASM-001. |
 
 ### Still open
 | ID | Question | Status |
@@ -290,4 +294,4 @@ Any derived document should cite requirement IDs from this table so a later chan
 ---
 
 ### Summary
-This document is the authoritative, single source of truth for the AI Facial Analysis platform. Phase 1 delivers: a from-scratch build with custom backend-controlled authentication (email + password, then mandatory OTP verification, for both signup and login; JWT access + refresh tokens with rotation and reuse detection; Redux-managed frontend auth state — explicitly not `localStorage`; and a strict UI → Redux → API Client → Backend Auth APIs → JWT/OTP Services layering), a 23-question onboarding flow, enforced photo validation (thresholds to be finalized during development), a MediaPipe/OpenCV + OpenAI facial analysis pipeline, an 11-feature auto-published report with PDF export, Stripe-gated payment, and a basic user dashboard, on a React + Vite frontend and a Python/FastAPI + SQLAlchemy/Alembic + Supabase Postgres backend. Admin functionality, the full report review workflow, email/PayPal/tracking, and AI visual/chat features are explicitly Phase 2. As of v1.1, only report pricing (OQ-002) remains open, at the client's explicit request; hosting and a few implementation-level thresholds are deferred (not blocking) rather than open.
+This document is the authoritative, single source of truth for the AI Facial Analysis platform. Phase 1 delivers: a from-scratch build with custom backend-controlled authentication (email + password, then mandatory OTP verification, for both signup and login; JWT access + refresh tokens with rotation and reuse detection; Zustand-managed frontend auth state — explicitly not `localStorage`; and a strict UI → Zustand Auth Store → API Client → Backend Auth APIs → JWT/OTP Services layering), a 23-question onboarding flow, enforced photo validation (thresholds to be finalized during development), a MediaPipe/OpenCV + OpenAI facial analysis pipeline, an 11-feature auto-published report with PDF export, Stripe-gated payment, and a basic user dashboard, on a single TypeScript + Next.js full-stack application (frontend and backend consolidated, see `ASM-004`) with Prisma/Prisma Migrate over a vendor-neutral PostgreSQL database. Admin functionality, the full report review workflow, email/PayPal/tracking, and AI visual/chat features are explicitly Phase 2. As of v1.2, only report pricing (OQ-002) remains open at the client's explicit request, and the Next.js frontend/backend consolidation reading (`ASM-004`) awaits explicit client confirmation; hosting and a few implementation-level thresholds are deferred (not blocking) rather than open.

@@ -31,37 +31,37 @@ Dependency chain: **0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9**, s
 
 ## Phase 0 — Project Foundation
 
-**Objective:** Establish the base repo structure, tooling, and cross-cutting infrastructure (config, DB connection, base API client, base Redux store) that every later phase builds on, without implementing any business feature yet.
+**Objective:** Establish the base repo structure, tooling, and cross-cutting infrastructure (config, DB connection, base API client, base Zustand store) that every later phase builds on, without implementing any business feature yet. **This phase also executes the migration off the legacy v1.1 scaffolding** (`Backend/` FastAPI app, `Frontend/` Vite app) onto the v1.2 stack — see `docs/architecture.md`'s stack-change note and `ASM-004`.
 
-- **Scope:** Backend project skeleton (FastAPI app structure, SQLAlchemy engine/session setup, Alembic initialized), frontend project skeleton (Vite/React app structure, Redux Toolkit store shell, base API client with interceptor scaffolding), environment/config management, base error-handling conventions.
+- **Scope:** Single Next.js (TypeScript) app structure (App Router, Route Handlers under an API route segment), Prisma schema + client setup, Prisma Migrate initialized, Zustand store shell, base API client with interceptor scaffolding, environment/config management, base error-handling conventions.
 - **Modules/features included:** `project-foundation` only.
 - **Functional requirements:** None directly — this phase enables `FR-*` implementation, it doesn't implement any.
 - **Technical requirements:** `NFR-001`–`NFR-006` (stack choices), `NFR-011` (clean/modular structure) applied to the skeleton itself.
 - **Dependencies:** None — this is the root phase.
-- **API requirements:** No business endpoints; a `/health` endpoint (already present in `Backend/app/main.py`) is sufficient at this stage.
-- **Database requirements:** Alembic initialized and connected to Supabase Postgres (`NFR-002`/`NFR-003`); no business tables yet.
+- **API requirements:** No business endpoints; a `/api/health` Route Handler is sufficient at this stage (replaces the legacy `Backend/app/main.py` `/health` endpoint, which is superseded along with the rest of the FastAPI app).
+- **Database requirements:** Prisma Migrate initialized and connected to a PostgreSQL instance (`NFR-002`/`NFR-003`); no business tables yet.
 - **UI/UX requirements:** None (no user-facing screens yet).
 - **Security considerations:** Secret/config management pattern established (env vars, never committed) — see `docs/security.md` §2 for what must never leak to the frontend bundle.
 - **Testing requirements:** Test framework selection and a smoke test proving the pipeline runs (see `docs/testing-strategy.md` §6).
-- **Acceptance criteria:** Backend boots and connects to the database; frontend boots and renders a placeholder shell; an empty Alembic migration applies cleanly; the base API client and Redux store exist (empty) per the layering in `docs/architecture.md` §3.
+- **Acceptance criteria:** The Next.js app boots, connects to the database via Prisma, and renders a placeholder page; a `/api/health` Route Handler returns 200; an initial Prisma migration applies cleanly; the base API client and Zustand store exist (empty) per the layering in `docs/architecture.md` §3.
 - **Prerequisites:** None.
-- **Expected deliverables:** Runnable backend/frontend skeletons; Alembic wired up; `D:\zzz\project-foundation\plans.md` executed.
+- **Expected deliverables:** A runnable, consolidated Next.js app (replacing the legacy `Backend/`/`Frontend/` folders); Prisma wired up; `D:\zzz\project-foundation\plans.md` executed.
 - **Potential risks:** Under-designing the module-boundary convention here (`docs/architecture.md` §5) causes rework in every later phase — get this right before Phase 1 starts.
-- **Open questions:** Test framework choice (`docs/testing-strategy.md` §6); no others specific to this phase.
+- **Open questions:** Test framework choice (`docs/testing-strategy.md` §6); whether the frontend+backend Next.js consolidation reading (`ASM-004`) is correct — confirm with the client before or during this phase, since it determines the entire app's folder structure; PostgreSQL hosting provider (not blocking, `NFR-010`).
 
 ## Phase 1 — Authentication & Authorization
 
 **Objective:** Deliver the complete custom email+password+OTP authentication flow, end to end, per `docs/authentication.md`.
 
-- **Scope:** Backend auth endpoints, JWT/OTP services, Redux auth slice, API client token attachment/refresh, all six auth-lifecycle flows in `docs/authentication.md` §2–3.
+- **Scope:** Backend auth endpoints (Next.js Route Handlers), JWT/OTP services, Zustand auth store, API client token attachment/refresh, all six auth-lifecycle flows in `docs/authentication.md` §2–3.
 - **Modules/features included:** `authentication`.
 - **Functional requirements:** `FR-002`.
 - **Technical requirements:** `AUTH-001`–`AUTH-012`, `FE-001`–`FE-007`.
-- **Dependencies:** Phase 0 (DB connection, base API client/Redux store, config management for JWT secret and OTP provider credentials).
+- **Dependencies:** Phase 0 (DB connection, base API client/Zustand store, config management for JWT secret and OTP provider credentials).
 - **API requirements:** `docs/api-specification.md` §2 (register, login, otp/verify, otp/resend, refresh, logout).
 - **Database requirements:** `User`, `OTP Record`, `Refresh Token / Session Record` (`docs/database-design.md` §2.1–2.3).
 - **UI/UX requirements:** `docs/ui-ux-design.md` §3.2 (signup/login/OTP screens, session-expiry redirect).
-- **Security considerations:** Full content of `docs/authentication.md` §4–8 (fixed OTP/token parameters, reuse detection, Redux storage trade-off) and `docs/security.md` §2–3.
+- **Security considerations:** Full content of `docs/authentication.md` §4–8 (fixed OTP/token parameters, reuse detection, client-side store storage trade-off) and `docs/security.md` §2–3.
 - **Testing requirements:** `docs/testing-strategy.md` §2 auth row in full, including the reuse-detection case flagged as a release blocker.
 - **Acceptance criteria:** A user can sign up and log in via the two-step flow; an expired access token silently refreshes; a reused rotated-out refresh token revokes the whole session family and forces re-login; logout revokes server-side; no token ever appears in `localStorage`.
 - **Prerequisites:** Phase 0 complete. Decision made on password hashing algorithm and OTP email vendor (`docs/security.md` §7, `docs/architecture.md` §7).
@@ -76,7 +76,7 @@ Dependency chain: **0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9**, s
 - **Scope:** Landing page (public), 23-question branching questionnaire, disclaimer checkbox gate.
 - **Modules/features included:** `landing-page`, `onboarding-questionnaire`.
 - **Functional requirements:** `FR-001`, `FR-003`, `FR-004`.
-- **Technical requirements:** None beyond the standard stack; questionnaire state is regular app state, not auth state (does not go in the Redux auth slice).
+- **Technical requirements:** None beyond the standard stack; questionnaire state is regular app state, not auth state (does not go in the Zustand auth store).
 - **Dependencies:** Phase 1 (a user must be authenticated before submitting a questionnaire response tied to their account).
 - **API requirements:** `docs/api-specification.md` §4.
 - **Database requirements:** `Questionnaire Response` (`docs/database-design.md` §2.4).
@@ -116,7 +116,7 @@ Dependency chain: **0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9**, s
 - **Scope:** Landmark detection, per-feature measurement extraction, OpenAI prompt construction using measurements + questionnaire answers together.
 - **Modules/features included:** `facial-analysis-engine`.
 - **Functional requirements:** `FR-007`, `FR-008`.
-- **Technical requirements:** `NFR-007` (MediaPipe/OpenCV, built from scratch), `NFR-008` (OpenAI Vision/GPT).
+- **Technical requirements:** `NFR-007` (MediaPipe/OpenCV, built from scratch), `NFR-008` (OpenAI Vision/GPT). **New as of v1.2:** MediaPipe/OpenCV are Python-native; since the application is now TypeScript/Next.js, this phase must also decide the process/service boundary for the CV step (e.g. a separate Python microservice or subprocess invoked from a Route Handler) — see `docs/architecture.md` §1/§7, not resolved by the client.
 - **Dependencies:** Phase 2 (questionnaire answers must exist as OpenAI context) and Phase 3 (validated photos must exist as input) — this phase cannot start meaningfully before both.
 - **API requirements:** `docs/api-specification.md` §6.
 - **Database requirements:** `Facial Analysis Result` (`docs/database-design.md` §2.6).
