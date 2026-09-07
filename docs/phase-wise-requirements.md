@@ -4,7 +4,7 @@
 
 > **Naming disambiguation — read this first.** `client_requirements.md` uses "Phase 1" / "Phase 2" to mean *client delivery scope* (Phase 1 = build now, Phase 2 = deferred future engagement). Every implementation phase in this document (Phase 0 through Phase 9) sits entirely **inside** the client's Phase 1. Do not confuse the two numbering schemes. Where this document says "Phase 3," it always means "Implementation Phase 3," never the client's delivery Phase.
 
-**Status:** Draft, derived from `client_requirements.md` v1.1.
+**Status:** Draft, derived from `client_requirements.md` v1.3.
 
 ---
 
@@ -31,29 +31,29 @@ Dependency chain: **0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9**, s
 
 ## Phase 0 — Project Foundation
 
-**Objective:** Establish the base repo structure, tooling, and cross-cutting infrastructure (config, DB connection, base API client, base Zustand store) that every later phase builds on, without implementing any business feature yet. **This phase also executes the migration off the legacy v1.1 scaffolding** (`Backend/` FastAPI app, `Frontend/` Vite app) onto the v1.2 stack — see `docs/architecture.md`'s stack-change note and `ASM-004`.
+**Objective:** Establish the base structure, tooling, and cross-cutting infrastructure for both apps (Frontend config/base API client/base Zustand store; Backend config/DB connection) that every later phase builds on, without implementing any business feature yet.
 
-- **Scope:** Single Next.js (TypeScript) app structure (App Router, Route Handlers under an API route segment), Prisma schema + client setup, Prisma Migrate initialized, Zustand store shell, base API client with interceptor scaffolding, environment/config management, base error-handling conventions.
+- **Scope:** Backend: FastAPI app structure, SQLAlchemy engine/session setup, Alembic initialized, CORS configured for the Next.js origin. Frontend: base API client with interceptor scaffolding, Zustand store shell, environment/config management, base error-handling conventions on both sides.
 - **Modules/features included:** `project-foundation` only.
 - **Functional requirements:** None directly — this phase enables `FR-*` implementation, it doesn't implement any.
 - **Technical requirements:** `NFR-001`–`NFR-006` (stack choices), `NFR-011` (clean/modular structure) applied to the skeleton itself.
 - **Dependencies:** None — this is the root phase.
-- **API requirements:** No business endpoints; a `/api/health` Route Handler is sufficient at this stage (replaces the legacy `Backend/app/main.py` `/health` endpoint, which is superseded along with the rest of the FastAPI app).
-- **Database requirements:** Prisma Migrate initialized and connected to a PostgreSQL instance (`NFR-002`/`NFR-003`); no business tables yet.
+- **API requirements:** No business endpoints; the existing `GET /health` (already present in `Backend/app/main.py`) is sufficient at this stage, confirmed reachable cross-origin from the Frontend.
+- **Database requirements:** Alembic initialized and connected to a PostgreSQL instance (`NFR-002`/`NFR-003`); no business tables yet.
 - **UI/UX requirements:** None (no user-facing screens yet).
-- **Security considerations:** Secret/config management pattern established (env vars, never committed) — see `docs/security.md` §2 for what must never leak to the frontend bundle.
+- **Security considerations:** Secret/config management pattern established (env vars, never committed) — see `docs/security.md` §2 for what must never leak to the frontend bundle; CORS allowed-origins list is environment-configurable, not hardcoded.
 - **Testing requirements:** Test framework selection and a smoke test proving the pipeline runs (see `docs/testing-strategy.md` §6).
-- **Acceptance criteria:** The Next.js app boots, connects to the database via Prisma, and renders a placeholder page; a `/api/health` Route Handler returns 200; an initial Prisma migration applies cleanly; the base API client and Zustand store exist (empty) per the layering in `docs/architecture.md` §3.
+- **Acceptance criteria:** The FastAPI backend boots, connects to the database, `/health` returns 200; the Next.js frontend boots, renders a placeholder page, and successfully calls `/health` cross-origin (proving CORS is correctly configured); the base API client and Zustand store exist (empty) per the layering in `docs/architecture.md` §3.
 - **Prerequisites:** None.
-- **Expected deliverables:** A runnable, consolidated Next.js app (replacing the legacy `Backend/`/`Frontend/` folders); Prisma wired up; `D:\zzz\project-foundation\plans.md` executed.
+- **Expected deliverables:** A runnable FastAPI backend and a runnable Next.js frontend, talking to each other over CORS; `D:\zzz\project-foundation\plans.md` executed.
 - **Potential risks:** Under-designing the module-boundary convention here (`docs/architecture.md` §5) causes rework in every later phase — get this right before Phase 1 starts.
-- **Open questions:** Test framework choice (`docs/testing-strategy.md` §6); whether the frontend+backend Next.js consolidation reading (`ASM-004`) is correct — confirm with the client before or during this phase, since it determines the entire app's folder structure; PostgreSQL hosting provider (not blocking, `NFR-010`).
+- **Open questions:** Test framework choice (`docs/testing-strategy.md` §6); PostgreSQL hosting provider (not blocking, `NFR-010`).
 
 ## Phase 1 — Authentication & Authorization
 
 **Objective:** Deliver the complete custom email+password+OTP authentication flow, end to end, per `docs/authentication.md`.
 
-- **Scope:** Backend auth endpoints (Next.js Route Handlers), JWT/OTP services, Zustand auth store, API client token attachment/refresh, all six auth-lifecycle flows in `docs/authentication.md` §2–3.
+- **Scope:** Backend auth endpoints (FastAPI), JWT/OTP services, Zustand auth store, API client token attachment/refresh, all six auth-lifecycle flows in `docs/authentication.md` §2–3.
 - **Modules/features included:** `authentication`.
 - **Functional requirements:** `FR-002`.
 - **Technical requirements:** `AUTH-001`–`AUTH-012`, `FE-001`–`FE-007`.
@@ -61,9 +61,9 @@ Dependency chain: **0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9**, s
 - **API requirements:** `docs/api-specification.md` §2 (register, login, otp/verify, otp/resend, refresh, logout).
 - **Database requirements:** `User`, `OTP Record`, `Refresh Token / Session Record` (`docs/database-design.md` §2.1–2.3).
 - **UI/UX requirements:** `docs/ui-ux-design.md` §3.2 (signup/login/OTP screens, session-expiry redirect).
-- **Security considerations:** Full content of `docs/authentication.md` §4–8 (fixed OTP/token parameters, reuse detection, client-side store storage trade-off) and `docs/security.md` §2–3.
+- **Security considerations:** Full content of `docs/authentication.md` §4–8 (fixed OTP/token parameters, reuse detection, httpOnly refresh cookie + in-memory access token) and `docs/security.md` §2–3.
 - **Testing requirements:** `docs/testing-strategy.md` §2 auth row in full, including the reuse-detection case flagged as a release blocker.
-- **Acceptance criteria:** A user can sign up and log in via the two-step flow; an expired access token silently refreshes; a reused rotated-out refresh token revokes the whole session family and forces re-login; logout revokes server-side; no token ever appears in `localStorage`.
+- **Acceptance criteria:** A user can sign up and log in via the two-step flow; an expired access token silently refreshes (proactive + 401 fallback) without redirect; page refresh / tab close / browser restart restores the session via the refresh cookie while protected routes wait on `isAuthInitializing`; a reused rotated-out refresh token revokes the whole session family and forces re-login; logout revokes server-side and clears the cookie; network/5xx failures do not log the user out; no token ever appears in `localStorage` / `sessionStorage`.
 - **Prerequisites:** Phase 0 complete. Decision made on password hashing algorithm and OTP email vendor (`docs/security.md` §7, `docs/architecture.md` §7).
 - **Expected deliverables:** Working auth flow across frontend+backend; `D:\zzz\authentication\plans.md` executed; `docs/authentication.md` cross-checked against the actual implementation.
 - **Potential risks:** Getting refresh-token rotation/reuse-detection wrong is a security-critical bug, not a cosmetic one — this is the single highest-risk item in this phase (see `docs/testing-strategy.md` §3).
@@ -116,7 +116,7 @@ Dependency chain: **0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9**, s
 - **Scope:** Landmark detection, per-feature measurement extraction, OpenAI prompt construction using measurements + questionnaire answers together.
 - **Modules/features included:** `facial-analysis-engine`.
 - **Functional requirements:** `FR-007`, `FR-008`.
-- **Technical requirements:** `NFR-007` (MediaPipe/OpenCV, built from scratch), `NFR-008` (OpenAI Vision/GPT). **New as of v1.2:** MediaPipe/OpenCV are Python-native; since the application is now TypeScript/Next.js, this phase must also decide the process/service boundary for the CV step (e.g. a separate Python microservice or subprocess invoked from a Route Handler) — see `docs/architecture.md` §1/§7, not resolved by the client.
+- **Technical requirements:** `NFR-007` (MediaPipe/OpenCV, built from scratch), `NFR-008` (OpenAI Vision/GPT). Both run in-process in the Python/FastAPI backend — no cross-language process boundary needed (a v1.2-era concern, resolved by the v1.3 backend-language reversion, see `docs/architecture.md` §1).
 - **Dependencies:** Phase 2 (questionnaire answers must exist as OpenAI context) and Phase 3 (validated photos must exist as input) — this phase cannot start meaningfully before both.
 - **API requirements:** `docs/api-specification.md` §6.
 - **Database requirements:** `Facial Analysis Result` (`docs/database-design.md` §2.6).

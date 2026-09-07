@@ -23,8 +23,8 @@ This is a category-level mapping, not literal test cases — each row expands in
 | Requirement area | Test categories required |
 |---|---|
 | `FR-001` (landing page) | Component: CTA renders and routes to signup. |
-| `AUTH-001`–`AUTH-012`, `WF-002` | Integration: full signup/login two-step flow (happy path); OTP expiry; OTP resend cooldown; 5-failed-attempt lockout; access-token expiry + silent refresh; refresh-token rotation; **refresh-token reuse → whole family revoked** (this specific case is easy to omit and is a named client security requirement — do not skip it); logout revocation. |
-| `FE-001`–`FE-007` | Component/unit: Zustand auth store state transitions; API client attaches token and retries once on 401-then-refresh; UI never imports auth API calls directly (can be enforced via lint boundary rather than a runtime test — see `docs/security.md`/`docs/architecture.md` §5 on module boundaries). |
+| `AUTH-001`–`AUTH-012`, `WF-002` | Integration: full signup/login two-step flow (happy path); OTP expiry; OTP resend cooldown; 5-failed-attempt lockout; access-token expiry + silent refresh (proactive and 401→retry); refresh-token rotation via httpOnly cookie; **refresh-token reuse → whole family revoked** (do not skip); logout revocation + cookie clear; startup session restore; network/5xx must not clear auth. |
+| `FE-001`–`FE-007` | Component/unit: Zustand auth store state transitions (`idle` / authenticated / unauthenticated); API client attaches token and single-flight refreshes; protected routes wait while initializing; UI never handles raw tokens (lint boundary where practical). |
 | `FR-003`, `FR-004`, `BR-003` | Integration: questionnaire submission rejected server-side when `disclaimer_accepted` is false, even if the client bypasses the UI gate. |
 | `FR-005`, `FR-006`, `BR-005` | Integration: each validation check (face count, frame proportion, occlusion, resolution, brightness) individually triggers a rejection with the correct reason; a fully-compliant photo set passes. |
 | `BR-004` | Integration: analysis pipeline cannot be triggered from a photo set with `validation_status = failed`. |
@@ -57,7 +57,7 @@ No admin-panel, email-notification, PayPal, tracking-pixel, AI-visual-feature, o
 | Item | Status |
 |---|---|
 | Photo-validation exact thresholds | Deferred (`ASM-002`) — test cases for validation boundaries can only be finalized once thresholds are set; write them against configuration values, not hardcoded numbers. |
-| Test framework choice (Vitest/Jest for unit/component, Playwright/Cypress for E2E) | Not specified by the client — **[Recommendation]**, to be decided consistent with the TypeScript/Next.js stack during `project-foundation` implementation. Superseded in v1.2: pytest is no longer relevant now that the backend is TypeScript, not Python. |
+| Test framework choice | Not specified by the client — **[Recommendation]**: `pytest` (+ `pytest-asyncio`, `httpx` test client) for the FastAPI backend; Vitest/RTL for frontend unit/component tests, Playwright for E2E. (v1.2 had briefly dropped pytest under a since-reverted TypeScript-backend assumption; v1.3 restores it now that the backend is confirmed Python.) |
 
 ## 7. Related Documents
 
