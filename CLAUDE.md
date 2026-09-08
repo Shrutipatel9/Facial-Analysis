@@ -25,7 +25,11 @@ They communicate over HTTP/CORS — the Frontend calls the Backend's REST API di
 
 The client has explicitly asked for a **premium, professional, highly interactive UI** — not a plain/default-styled or "college project" look — and **senior-level code quality** across the stack (clean architecture, proper typing on both sides, consistent conventions, no shortcuts). Treat this as a standing bar for every module's actual implementation, not just a one-off ask: real design effort on visual hierarchy, spacing, typography, micro-interactions, and empty/loading/error states, and idiomatic, well-structured code with no dead code or copy-paste duplication. This is in addition to, not a replacement for, `NFR-011`/`BC-005` above.
 
-## Architecture (target, per client_requirements.md v1.4)
+Two standing UI conventions established in the auth module, applying to **every** future module (`BR-009`, `BR-010`; full detail in `docs/ui-ux-design.md` §4):
+- Every user-initiated action with a real success/failure outcome shows exactly one toast (top-right, via `sonner`) — never silent.
+- Every destructive/irreversible action (delete, logout, revoke, etc.) is confirmed via the shared `ConfirmDialog` (`frontend/src/components/ui/confirm-dialog.tsx`) before it executes — never fired directly on click.
+
+## Architecture (target, per client_requirements.md v1.5)
 
 **Stack:** Next.js 16.3.4 (App Router, TypeScript) frontend + Python/FastAPI backend (SQLAlchemy + Alembic) — two separate applications over HTTP/CORS · vendor-neutral PostgreSQL (no longer Supabase — `NFR-002`) · Zustand for frontend state (superseded from Redux, `NFR-006`) · Tailwind CSS v4 for styling · MediaPipe/OpenCV (in-process in the Python backend) for facial measurement · OpenAI for narrative generation · Stripe for payment.
 

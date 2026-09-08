@@ -20,8 +20,10 @@ from app.exceptions import (
     RefreshTokenExpiredError,
     RefreshTokenInvalidError,
     RefreshTokenReuseError,
+    ResetTokenInvalidError,
     SamePasswordError,
     UnauthorizedError,
+    WeakPasswordError,
 )
 
 
@@ -134,4 +136,20 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content=_error("EMAIL_DELIVERY_FAILED", "Could not send verification email. Please try again."),
+        )
+
+    @app.exception_handler(ResetTokenInvalidError)
+    async def _reset_token_invalid(request: Request, exc: ResetTokenInvalidError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=_error(
+                "RESET_TOKEN_INVALID", "This reset link is invalid or has expired. Please request a new one."
+            ),
+        )
+
+    @app.exception_handler(WeakPasswordError)
+    async def _weak_password(request: Request, exc: WeakPasswordError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=_error("WEAK_PASSWORD", str(exc)),
         )

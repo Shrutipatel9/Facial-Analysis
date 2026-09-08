@@ -4,18 +4,14 @@ import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 
 import { AuthLayout } from "@/components/auth/AuthLayout"
-import { ResetOtpForm } from "@/components/auth/ResetOtpForm"
+import { NewPasswordForm } from "@/components/auth/NewPasswordForm"
 import { Button } from "@/components/ui/button"
 
-export function ResetPasswordClient() {
+export function ResetPasswordConfirmClient() {
   const searchParams = useSearchParams()
+  const resetToken = searchParams.get("reset_token")
 
-  const email = searchParams.get("email")
-  const resendAt = Number(searchParams.get("resend_at"))
-
-  const isValid = !!email && Number.isFinite(resendAt)
-
-  if (!isValid) {
+  if (!resetToken) {
     return (
       <AuthLayout title="Reset session not found" description="This link is missing or no longer valid.">
         <Button render={<Link href="/forgot-password" />} size="lg" className="w-full">
@@ -26,8 +22,8 @@ export function ResetPasswordClient() {
   }
 
   return (
-    <AuthLayout title="Enter your reset code" description="Check your inbox for the 6-digit code we sent you.">
-      <ResetOtpForm email={email} resendAt={resendAt} />
+    <AuthLayout title="Choose a new password" description="Create a strong new password for your account.">
+      <NewPasswordForm resetToken={resetToken} />
     </AuthLayout>
   )
 }

@@ -72,7 +72,9 @@ export function OtpForm({ challengeId, email, expiresAt, resendAt, onSuccess }: 
           setCurrentExpiresAt(pastTimestamp())
         }
       }
-      setErrorMessage(getErrorMessage(err))
+      const message = getErrorMessage(err)
+      setErrorMessage(message)
+      toast.error(message)
       setOtp("")
     } finally {
       setIsVerifying(false)
@@ -94,7 +96,9 @@ export function OtpForm({ challengeId, email, expiresAt, resendAt, onSuccess }: 
       if (err instanceof ApiError && err.code === "ACCOUNT_LOCKED") {
         setLockedUntil(msFromNowSeconds(err.retryAfterSeconds ?? 900))
       }
-      setErrorMessage(getErrorMessage(err))
+      const message = getErrorMessage(err)
+      setErrorMessage(message)
+      toast.error(message)
     } finally {
       setIsResending(false)
     }

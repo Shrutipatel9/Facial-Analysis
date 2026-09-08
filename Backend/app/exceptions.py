@@ -87,3 +87,20 @@ class SamePasswordError(DomainError):
 
     def __init__(self) -> None:
         super().__init__("New password must be different from your current password.")
+
+
+class ResetTokenInvalidError(DomainError):
+    """The reset_token on POST /auth/reset-password is missing, malformed,
+    expired, wrong-purpose, or already redeemed (single-use, enforced via
+    the password-hash fingerprint claim -- see hash_reset_binding). All
+    collapsed into one generic case; by this point the caller already
+    proved account access via OTP, so there's no anti-enumeration reason to
+    distinguish sub-cases."""
+
+
+class WeakPasswordError(DomainError):
+    """New password fails the same strength rules enforced at signup --
+    raised here (not by a schema validator) because ResetPasswordRequest no
+    longer carries the user's email (only reset_token + new_password), so
+    the email-aware half of validate_password_strength can only run after
+    the token is decoded and the user resolved."""

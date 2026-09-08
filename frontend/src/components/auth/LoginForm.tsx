@@ -36,6 +36,7 @@ export function LoginForm() {
       // "no such account" (anti-enumeration), and the UI must not
       // reintroduce specificity here.
       const challenge = await authApi.login(email, values.password)
+      toast.success("Code sent. Check your inbox to continue.")
       const params = buildVerifyOtpParams(challenge, email)
       router.push(`/verify-otp?${params.toString()}`)
     } catch (err) {

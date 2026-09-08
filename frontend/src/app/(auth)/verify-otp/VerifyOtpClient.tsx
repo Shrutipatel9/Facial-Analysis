@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
+import { toast } from "sonner"
 
 import { AuthLayout } from "@/components/auth/AuthLayout"
 import { OtpForm } from "@/components/auth/OtpForm"
@@ -37,6 +38,7 @@ export function VerifyOtpClient() {
 
   function handleSuccess(tokens: TokenResponse) {
     acceptAuthTokens(tokens)
+    toast.success("Welcome! You're all set.")
     router.replace("/dashboard")
   }
 

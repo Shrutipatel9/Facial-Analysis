@@ -32,6 +32,13 @@ async def get_current_user(
         # need finer-grained codes at this layer.
         raise UnauthorizedError() from exc
 
+    # Rejects any non-access token signed with the same secret (e.g. a
+    # password-reset token, app/core/security.py's create_purpose_token) --
+    # without this check, any purpose-scoped JWT would work as a full Bearer
+    # credential for its whole TTL.
+    if payload.get("purpose") != "access":
+        raise UnauthorizedError()
+
     try:
         user_id = uuid.UUID(payload.get("sub", ""))
     except ValueError as exc:

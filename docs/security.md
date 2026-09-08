@@ -30,6 +30,7 @@
 
 - **Access token:** in-memory Zustand only (15 min). Never `localStorage` / `sessionStorage` / Zustand `persist`.
 - **Refresh token:** httpOnly cookie, `Path=/`, `SameSite=Strict`, `Secure` when `ENVIRONMENT != development`. First-party on the frontend origin via the Next.js `/api/backend` rewrite.
+- **`reset_token` (v1.5, `AUTH-015`):** short-lived (~10 min), single-use, JSON-body-carried only — never a cookie, never Zustand. Signed with the same secret as access tokens but carries a distinct `purpose: "password_reset"` claim; `get_current_user` rejects any token whose purpose isn't `"access"`, so it can never be replayed as a Bearer credential. Single-use is enforced by binding it to a fingerprint of the account's password hash at mint time — the reset itself changes that hash, so a captured/replayed token fails closed (`RESET_TOKEN_INVALID`) rather than needing a server-side revocation table.
 - Residual XSS risk is limited to the short-lived access token — mitigate with CSP + encoding + dependency hygiene (`ASM-001`).
 
 ## 4. CSRF (cookie-authenticated endpoints)
@@ -39,7 +40,7 @@ Cookie endpoints (`POST /auth/refresh`, `POST /auth/logout`) require:
 1. Header `X-Requested-With: XMLHttpRequest` (blocks simple HTML form CSRF).
 2. When `Origin` or `Referer` is present, it must match `CORS_ORIGINS`.
 
-Bearer-only APIs are not CSRF-sensitive (cross-site forms cannot set `Authorization`). Rate limit on refresh: **30/minute**.
+Bearer-only APIs are not CSRF-sensitive (cross-site forms cannot set `Authorization`). Rate limit on refresh: **30/minute**. `/auth/forgot-password`, `/auth/reset-password/verify`, and `/auth/reset-password` are neither cookie- nor Bearer-authenticated (their credential is request-body content — an OTP or `reset_token`), so CSRF defenses don't apply to them either, for the same reason they don't apply to `/auth/register` or `/auth/login`.
 
 ## 5. HTTP Security Headers
 

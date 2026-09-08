@@ -32,6 +32,13 @@ export interface ForgotPasswordResponse {
   resend_cooldown_seconds: number
 }
 
+export interface ResetPasswordVerifyResponse {
+  /** Short-lived, single-use credential proving OTP possession -- carries
+   * no account-identifying info of its own; see NewPasswordForm. */
+  reset_token: string
+  expires_in: number
+}
+
 export function register(email: string, password: string): Promise<ChallengeResponse> {
   return publicRequest<ChallengeResponse>("/auth/register", { email, password })
 }
@@ -61,10 +68,13 @@ export function forgotPassword(email: string): Promise<ForgotPasswordResponse> {
   return publicRequest<ForgotPasswordResponse>("/auth/forgot-password", { email })
 }
 
-export function resetPassword(email: string, otp: string, newPassword: string): Promise<MessageResponse> {
+export function verifyResetPasswordOtp(email: string, otp: string): Promise<ResetPasswordVerifyResponse> {
+  return publicRequest<ResetPasswordVerifyResponse>("/auth/reset-password/verify", { email, otp })
+}
+
+export function resetPassword(resetToken: string, newPassword: string): Promise<MessageResponse> {
   return publicRequest<MessageResponse>("/auth/reset-password", {
-    email,
-    otp,
+    reset_token: resetToken,
     new_password: newPassword,
   })
 }

@@ -1,10 +1,13 @@
 import asyncio
+import uuid
 from datetime import UTC, datetime, timedelta
 
+import jwt
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.db.session import async_session_factory
 from app.models.otp_record import OTPRecord
 from app.models.refresh_token import RefreshToken
@@ -521,9 +524,14 @@ class TestForgotPassword:
         await client.post("/auth/forgot-password", json={"email": "reset-success@example.com"})
         otp = email_sender.sent["reset-success@example.com"]
 
+        verify_resp = await client.post(
+            "/auth/reset-password/verify", json={"email": "reset-success@example.com", "otp": otp}
+        )
+        assert verify_resp.status_code == 200, verify_resp.text
+        reset_token = verify_resp.json()["reset_token"]
+
         resp = await client.post(
-            "/auth/reset-password",
-            json={"email": "reset-success@example.com", "otp": otp, "new_password": "brandnewpass9"},
+            "/auth/reset-password", json={"reset_token": reset_token, "new_password": "brandnewpass9"}
         )
         assert resp.status_code == 200, resp.text
 
@@ -547,14 +555,94 @@ class TestForgotPassword:
         )
         assert resp.status_code == 401
 
+    async def test_reset_token_cannot_be_reused_after_success(self, client: AsyncClient, email_sender):
+        """Single-use, enforced via the password-hash-fingerprint claim --
+        the same reset_token must not be able to reset the password twice."""
+        await _register_and_verify(client, email_sender, "reset-reuse@example.com")
+        await client.post("/auth/forgot-password", json={"email": "reset-reuse@example.com"})
+        otp = email_sender.sent["reset-reuse@example.com"]
+
+        verify_resp = await client.post(
+            "/auth/reset-password/verify", json={"email": "reset-reuse@example.com", "otp": otp}
+        )
+        reset_token = verify_resp.json()["reset_token"]
+
+        first = await client.post(
+            "/auth/reset-password", json={"reset_token": reset_token, "new_password": "brandnewpass9"}
+        )
+        assert first.status_code == 200
+
+        second = await client.post(
+            "/auth/reset-password", json={"reset_token": reset_token, "new_password": "anothernewpass9"}
+        )
+        assert second.status_code == 400
+        assert second.json()["error"]["code"] == "RESET_TOKEN_INVALID"
+
+    async def test_expired_reset_token_rejected(self, client: AsyncClient, email_sender):
+        settings = get_settings()
+        expired_token = jwt.encode(
+            {
+                "sub": str(uuid.uuid4()),
+                "purpose": "password_reset",
+                "pwd_fp": "irrelevant",
+                "exp": datetime.now(UTC) - timedelta(seconds=1),
+                "iat": datetime.now(UTC) - timedelta(minutes=20),
+            },
+            settings.jwt_secret,
+            algorithm=settings.jwt_algorithm,
+        )
+
+        resp = await client.post(
+            "/auth/reset-password", json={"reset_token": expired_token, "new_password": "brandnewpass9"}
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"]["code"] == "RESET_TOKEN_INVALID"
+
+    async def test_reset_token_with_wrong_purpose_claim_rejected(self, client: AsyncClient, email_sender):
+        """A token minted for a different purpose (even a real access token)
+        must never work as a password-reset credential."""
+        await _register_and_verify(client, email_sender, "reset-wrongpurpose@example.com")
+        async with async_session_factory() as session:
+            result = await session.execute(select(User).where(User.email == "reset-wrongpurpose@example.com"))
+            user = result.scalar_one()
+            tokens = await jwt_service.issue_token_pair(session, user)
+            await session.commit()
+
+        resp = await client.post(
+            "/auth/reset-password",
+            json={"reset_token": tokens.access_token, "new_password": "brandnewpass9"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"]["code"] == "RESET_TOKEN_INVALID"
+
+    async def test_reset_token_cannot_be_used_as_bearer_access_token(self, client: AsyncClient, email_sender):
+        """Regression test for the get_current_user purpose-claim hardening:
+        a valid reset_token must never authenticate a protected endpoint."""
+        await _register_and_verify(client, email_sender, "reset-notbearer@example.com")
+        await client.post("/auth/forgot-password", json={"email": "reset-notbearer@example.com"})
+        otp = email_sender.sent["reset-notbearer@example.com"]
+
+        verify_resp = await client.post(
+            "/auth/reset-password/verify", json={"email": "reset-notbearer@example.com", "otp": otp}
+        )
+        reset_token = verify_resp.json()["reset_token"]
+
+        resp = await client.get("/auth/me", headers={"Authorization": f"Bearer {reset_token}"})
+        assert resp.status_code == 401
+        assert resp.json()["error"]["code"] == "UNAUTHORIZED"
+
     async def test_reset_rejects_new_password_same_as_current(self, client: AsyncClient, email_sender):
         await _register_and_verify(client, email_sender, "reset-samepass@example.com")
         await client.post("/auth/forgot-password", json={"email": "reset-samepass@example.com"})
         otp = email_sender.sent["reset-samepass@example.com"]
 
+        verify_resp = await client.post(
+            "/auth/reset-password/verify", json={"email": "reset-samepass@example.com", "otp": otp}
+        )
+        reset_token = verify_resp.json()["reset_token"]
+
         resp = await client.post(
-            "/auth/reset-password",
-            json={"email": "reset-samepass@example.com", "otp": otp, "new_password": "correcthorse9"},
+            "/auth/reset-password", json={"reset_token": reset_token, "new_password": "correcthorse9"}
         )
         assert resp.status_code == 400
         assert resp.json()["error"]["code"] == "SAME_PASSWORD"
@@ -566,12 +654,10 @@ class TestForgotPassword:
         await client.post("/auth/forgot-password", json={"email": "reset-wrongcode@example.com"})
 
         real_resp = await client.post(
-            "/auth/reset-password",
-            json={"email": "reset-wrongcode@example.com", "otp": "000000", "new_password": "brandnewpass9"},
+            "/auth/reset-password/verify", json={"email": "reset-wrongcode@example.com", "otp": "000000"}
         )
         fake_resp = await client.post(
-            "/auth/reset-password",
-            json={"email": "reset-neverexisted@example.com", "otp": "000000", "new_password": "brandnewpass9"},
+            "/auth/reset-password/verify", json={"email": "reset-neverexisted@example.com", "otp": "000000"}
         )
         assert real_resp.status_code == fake_resp.status_code == 400
         assert real_resp.json()["error"]["code"] == fake_resp.json()["error"]["code"] == "OTP_INVALID"
@@ -583,8 +669,7 @@ class TestForgotPassword:
         await _register_and_verify(client, email_sender, "reset-nopending@example.com")
 
         resp = await client.post(
-            "/auth/reset-password",
-            json={"email": "reset-nopending@example.com", "otp": "123456", "new_password": "brandnewpass9"},
+            "/auth/reset-password/verify", json={"email": "reset-nopending@example.com", "otp": "123456"}
         )
         assert resp.status_code == 400
         assert resp.json()["error"]["code"] == "OTP_INVALID"
@@ -605,8 +690,7 @@ class TestForgotPassword:
             await session.commit()
 
         resp = await client.post(
-            "/auth/reset-password",
-            json={"email": "reset-expired@example.com", "otp": otp, "new_password": "brandnewpass9"},
+            "/auth/reset-password/verify", json={"email": "reset-expired@example.com", "otp": otp}
         )
         assert resp.status_code == 400
         assert resp.json()["error"]["code"] == "OTP_EXPIRED"
@@ -620,8 +704,7 @@ class TestForgotPassword:
 
         for _ in range(5):
             resp = await client.post(
-                "/auth/reset-password",
-                json={"email": "reset-lockout@example.com", "otp": "000000", "new_password": "brandnewpass9"},
+                "/auth/reset-password/verify", json={"email": "reset-lockout@example.com", "otp": "000000"}
             )
 
         assert resp.status_code == 429
@@ -643,8 +726,35 @@ class TestForgotPassword:
         await client.post("/auth/forgot-password", json={"email": "reset-weak@example.com"})
         otp = email_sender.sent["reset-weak@example.com"]
 
+        verify_resp = await client.post(
+            "/auth/reset-password/verify", json={"email": "reset-weak@example.com", "otp": otp}
+        )
+        reset_token = verify_resp.json()["reset_token"]
+
         resp = await client.post(
-            "/auth/reset-password",
-            json={"email": "reset-weak@example.com", "otp": otp, "new_password": "abc"},
+            "/auth/reset-password", json={"reset_token": reset_token, "new_password": "abc"}
         )
         assert resp.status_code == 422
+
+    async def test_new_password_same_as_email_local_part_rejected_at_service_layer(
+        self, client: AsyncClient, email_sender
+    ):
+        """This rule can only be enforced once reset_token is decoded and
+        the user's real email is known -- unlike registration, the schema
+        layer alone (no email in the request) can't catch it, so it must
+        surface as WEAK_PASSWORD from the service layer instead of 422 at
+        the schema layer."""
+        await _register_and_verify(client, email_sender, "resetemail9@example.com")
+        await client.post("/auth/forgot-password", json={"email": "resetemail9@example.com"})
+        otp = email_sender.sent["resetemail9@example.com"]
+
+        verify_resp = await client.post(
+            "/auth/reset-password/verify", json={"email": "resetemail9@example.com", "otp": otp}
+        )
+        reset_token = verify_resp.json()["reset_token"]
+
+        resp = await client.post(
+            "/auth/reset-password", json={"reset_token": reset_token, "new_password": "resetemail9"}
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "WEAK_PASSWORD"

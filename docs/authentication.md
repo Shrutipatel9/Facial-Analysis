@@ -2,7 +2,7 @@
 
 **Source of truth:** [`client_requirements.md`](./client_requirements.md) (`AUTH-*`, `FE-*`, `WF-002`, `ASM-001`). This is the deep-dive referenced by [`docs/architecture.md`](./architecture.md) §3 — read that section first for the layering contract this document elaborates on.
 
-**Status:** Draft, derived from `client_requirements.md` **v1.4**. **This flow is fully specified by the client — do not redesign the signup/login/OTP shape.** In particular: **do not use Supabase Auth or any third-party identity provider** (`AUTH-001`, `CON-002`).
+**Status:** Draft, derived from `client_requirements.md` **v1.5**. **This flow is fully specified by the client — do not redesign the signup/login/OTP shape.** In particular: **do not use Supabase Auth or any third-party identity provider** (`AUTH-001`, `CON-002`).
 
 > **v1.4 token-transport revision.** Refresh tokens travel as an **httpOnly cookie** set by the backend; only the short-lived access token lives in the in-memory Zustand store. This supersedes the v1.1–v1.3 reading of `FE-002` / `OQ-009` that placed both tokens in the client-side store. Access tokens must still never be written to `localStorage` / `sessionStorage`, and Zustand must never use `persist` middleware for auth.
 
@@ -39,6 +39,44 @@ Step 2: OTP Verification
           └─ failure → increment attempt counter
                        → after 5 failed attempts, 15-minute lockout before another OTP can be requested
 ```
+
+## 2.5 Forgot-password / reset-password (`AUTH-015`, v1.5)
+
+Not client-stated (`WF-002` never described a password-reset path) — a `Decided by delivery team` addition, existing in shipped code since the initial auth build but only documented here as of v1.5. Three separate steps/screens, not one combined OTP+new-password screen: verifying possession of the account is deliberately kept separate from setting the new password, both for a cleaner UI (matching how most products do this) and so a stray/reused OTP can never be replayed against a *different* new password than the one the user actually intended.
+
+```
+Step 1: Request (always generic — anti-enumeration, same as forgot-password's
+         existing OQ-anti-enumeration posture elsewhere in this doc)
+  POST /auth/forgot-password {email}
+    → identical 200 response whether or not the account exists; an OTP
+      (purpose="password_reset") is issued + emailed only if it does,
+      reusing AUTH-011's exact cooldown/lockout/hash mechanics.
+          │
+          ▼
+Step 2: Verify
+  POST /auth/reset-password/verify {email, otp}
+    → on success: a short-lived (~10-minute), single-use reset_token —
+      never the raw OTP or the account's email — proving verification
+      succeeded, without yet touching the password.
+    → on failure: the same generic OTP_INVALID/OTP_EXPIRED/ACCOUNT_LOCKED
+      errors AUTH-011 already defines for signup/login OTP verification.
+          │
+          ▼
+Step 3: Reset
+  POST /auth/reset-password {reset_token, new_password}
+    → decodes/validates reset_token: correct signature, not expired,
+      purpose claim is exactly "password_reset" (never a valid Bearer
+      access credential — see below), and not already redeemed.
+    → rejects a no-op reset to the same password (SAME_PASSWORD, matching
+      the account-already-authenticated password-change UX elsewhere).
+    → on success: updates the password hash and revokes every existing
+      session for the account (AUTH-010's session-revocation model,
+      applied here for the same reason — the old password may have been
+      known to someone else, so every device must re-authenticate, not
+      just the one running this flow).
+```
+
+**`reset_token` is not a Bearer access credential.** It shares the access token's signing secret/algorithm but carries a `purpose: "password_reset"` claim instead of `"access"`; `get_current_user` rejects any token whose purpose isn't `"access"`, so a `reset_token` can never authenticate a protected endpoint no matter how long its TTL. **Single-use** is achieved without a server-side token table: the token embeds a fingerprint of the user's *current* password hash at mint time, and the reset step changes that hash — so the identical token can never be redeemed a second time, and replay after a successful reset fails the same way an expired or tampered token would (`RESET_TOKEN_INVALID`, generic).
 
 ## 3. Authenticated Request Lifecycle
 
@@ -142,12 +180,15 @@ The refresh token is no longer reachable from page JavaScript (httpOnly cookie),
 | `POST /auth/refresh` | Cookie credential → new access token; rotates refresh cookie |
 | `POST /auth/logout` | Revoke current refresh session; clear cookie |
 | `GET /auth/me` | Current user (used after refresh on startup) |
+| `POST /auth/forgot-password` | Step 1 of reset (`AUTH-015`) — always-generic response |
+| `POST /auth/reset-password/verify` | Step 2 of reset — OTP → short-lived `reset_token` |
+| `POST /auth/reset-password` | Step 3 of reset — `reset_token` + new password |
 
 Full request/response shapes: [`docs/api-specification.md`](./api-specification.md) §Authentication.
 
 ## 10. Open Items
 
-None outstanding for authentication itself — `OQ-001`, `OQ-003`, `OQ-005`, and `OQ-009` are resolved (v1.4 revises `OQ-009`/`FE-002` to httpOnly refresh cookies). The only related open item is the **specific OTP email vendor** (`NFR-012` — channel is confirmed as email, provider TBD, non-blocking); see `docs/architecture.md` §7.
+None outstanding for authentication itself — `OQ-001`, `OQ-003`, `OQ-005`, and `OQ-009` are resolved (v1.4 revises `OQ-009`/`FE-002` to httpOnly refresh cookies; v1.5 adds the forgot-password flow, `AUTH-015`, and backfills `AUTH-013`/`AUTH-014` — CSRF and `GET /auth/me` — which existed in code but were undocumented here before v1.5). The only related open item is the **specific OTP email vendor** (`NFR-012` — channel is confirmed as email, provider TBD, non-blocking); see `docs/architecture.md` §7.
 
 ## 11. Related Documents
 

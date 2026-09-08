@@ -158,7 +158,12 @@ export function establishSession(tokens: SessionTokens): void {
   bootstrapped = true
 }
 
-/** Explicit logout: revoke server session, clear cookie, clear Zustand. */
+/** Explicit logout: revoke server session, clear cookie, clear Zustand.
+ * Local state is always cleared (finally), even if the server-side revoke
+ * fails -- a user must never be stuck "logged in" locally just because the
+ * network blipped. The failure still propagates to the caller so the UI
+ * can show an accurate success/error toast (docs/ui-ux-design.md's
+ * "no silent action" rule) rather than swallowing it here. */
 export async function logoutSession(): Promise<void> {
   const { accessToken, clearSession } = useAuthStore.getState()
 
@@ -170,8 +175,6 @@ export async function logoutSession(): Promise<void> {
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
     })
-  } catch {
-    // Best-effort revoke — always clear local state afterward.
   } finally {
     clearSession()
     bootstrapped = true

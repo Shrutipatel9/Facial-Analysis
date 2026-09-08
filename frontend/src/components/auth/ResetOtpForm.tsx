@@ -4,27 +4,25 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { Loader2, MailCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import { useForm, useWatch } from "react-hook-form"
+import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 
-import { PasswordStrengthMeter } from "@/components/auth/PasswordStrengthMeter"
 import { Button } from "@/components/ui/button"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
-import { PasswordInput } from "@/components/ui/password-input"
 import { useCountdown } from "@/hooks/useCountdown"
 import { ApiError } from "@/lib/api/errors"
 import { getErrorMessage } from "@/lib/api/getErrorMessage"
 import * as authApi from "@/lib/auth/authApi"
 import { msFromNowSeconds } from "@/lib/time"
-import { type ResetPasswordFormValues, resetPasswordSchema } from "@/lib/validation"
+import { type ResetOtpFormValues, resetOtpSchema } from "@/lib/validation"
 
-interface ResetPasswordFormProps {
+interface ResetOtpFormProps {
   email: string
   resendAt: number
 }
 
-export function ResetPasswordForm({ email, resendAt }: ResetPasswordFormProps) {
+export function ResetOtpForm({ email, resendAt }: ResetOtpFormProps) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isResending, setIsResending] = useState(false)
@@ -36,20 +34,20 @@ export function ResetPasswordForm({ email, resendAt }: ResetPasswordFormProps) {
   const isLocked = lockedUntil !== null && lockCountdown > 0
   const canResend = !isResending && !isLocked && resendCountdown <= 0
 
-  const form = useForm<ResetPasswordFormValues>({
-    resolver: zodResolver(resetPasswordSchema),
-    defaultValues: { otp: "", newPassword: "" },
+  const form = useForm<ResetOtpFormValues>({
+    resolver: zodResolver(resetOtpSchema),
+    defaultValues: { otp: "" },
     mode: "onBlur",
   })
 
-  const newPassword = useWatch({ control: form.control, name: "newPassword" })
-
-  async function onSubmit(values: ResetPasswordFormValues) {
+  async function onSubmit(values: ResetOtpFormValues) {
     setIsSubmitting(true)
     try {
-      await authApi.resetPassword(email, values.otp, values.newPassword)
-      toast.success("Password reset. Please log in with your new password.")
-      router.push("/login")
+      const response = await authApi.verifyResetPasswordOtp(email, values.otp)
+      // Intermediate step, not a completed action -- matches the existing
+      // no-toast pattern on login/signup's OTP hand-off (see docs/ui-ux-design.md).
+      const params = new URLSearchParams({ reset_token: response.reset_token, email })
+      router.push(`/reset-password/confirm?${params.toString()}`)
     } catch (err) {
       if (err instanceof ApiError && err.code === "ACCOUNT_LOCKED") {
         setLockedUntil(msFromNowSeconds(err.retryAfterSeconds ?? 900))
@@ -110,30 +108,9 @@ export function ResetPasswordForm({ email, resendAt }: ResetPasswordFormProps) {
           </p>
         ) : null}
 
-        <FormField
-          control={form.control}
-          name="newPassword"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel className="text-[15px]">New password</FormLabel>
-              <FormControl>
-                <PasswordInput
-                  className="h-12 text-base"
-                  autoComplete="new-password"
-                  placeholder="At least 10 characters"
-                  disabled={isSubmitting || isLocked}
-                  {...field}
-                />
-              </FormControl>
-              <PasswordStrengthMeter password={newPassword} />
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
         <Button type="submit" className="h-12 w-full text-base" disabled={isSubmitting || isLocked}>
           {isSubmitting ? <Loader2 className="animate-spin" /> : null}
-          Reset password
+          Verify code
         </Button>
 
         <div className="flex flex-col items-center gap-1">

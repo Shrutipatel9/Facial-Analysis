@@ -81,7 +81,7 @@ def hash_refresh_token(raw_token: str) -> str:
 def create_access_token(*, subject: str, role: str, expires_delta: timedelta | None = None) -> str:
     settings = get_settings()
     expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
-    payload = {"sub": subject, "role": role, "exp": expire, "iat": datetime.now(UTC)}
+    payload = {"sub": subject, "role": role, "purpose": "access", "exp": expire, "iat": datetime.now(UTC)}
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
@@ -90,3 +90,26 @@ def decode_access_token(token: str) -> dict[str, Any]:
     # Algorithm is explicitly pinned here -- never derived from the token's
     # own header -- to prevent algorithm-confusion attacks.
     return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+
+
+# --- Purpose-scoped tokens (e.g. password reset) ---
+# Same signing secret/algorithm as access tokens, but carry a "purpose"
+# claim other than "access" -- get_current_user (app/api/deps.py) rejects
+# any token whose purpose isn't "access", so these can never be used as a
+# Bearer credential no matter how long their TTL is.
+
+
+def create_purpose_token(*, subject: str, purpose: str, expires_delta: timedelta, **extra_claims: str) -> str:
+    settings = get_settings()
+    expire = datetime.now(UTC) + expires_delta
+    payload: dict[str, Any] = {"sub": subject, "purpose": purpose, "exp": expire, "iat": datetime.now(UTC)}
+    payload.update(extra_claims)
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def hash_reset_binding(password_hash: str) -> str:
+    """Non-reversible fingerprint of a user's CURRENT password hash, embedded
+    in a password-reset token so it self-invalidates the instant the
+    password actually changes -- gives the token single-use semantics
+    without a server-side token table. Only ever compared for equality."""
+    return hashlib.sha256(password_hash.encode()).hexdigest()[:32]

@@ -2,10 +2,12 @@
 
 import { Loader2, LogOut } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useAuthGuard } from "@/hooks/useAuthGuard"
+import { getErrorMessage } from "@/lib/api/getErrorMessage"
 import * as authApi from "@/lib/auth/authApi"
 import { useAuthStore } from "@/store/authStore"
 
@@ -13,14 +15,15 @@ export default function ProtectedRouteGroupLayout({ children }: { children: Reac
   const { isChecking } = useAuthGuard()
   const user = useAuthStore((state) => state.user)
   const router = useRouter()
-  const [isLoggingOut, setIsLoggingOut] = useState(false)
 
   async function handleLogout() {
-    setIsLoggingOut(true)
     try {
       await authApi.logout()
+      toast.success("Signed out.")
+    } catch (err) {
+      toast.error(getErrorMessage(err))
     } finally {
-      // logoutSession already cleared Zustand; always leave protected routes.
+      // logoutSession always clears Zustand locally; always leave protected routes.
       router.replace("/login")
     }
   }
@@ -40,10 +43,20 @@ export default function ProtectedRouteGroupLayout({ children }: { children: Reac
           <span className="text-sm font-semibold tracking-tight">Facial Analysis</span>
           <div className="flex items-center gap-3">
             <span className="hidden text-sm text-muted-foreground sm:inline">{user?.email}</span>
-            <Button variant="outline" size="sm" onClick={handleLogout} disabled={isLoggingOut}>
-              {isLoggingOut ? <Loader2 className="animate-spin" /> : <LogOut />}
-              Sign out
-            </Button>
+            <ConfirmDialog
+              trigger={
+                <Button variant="outline" size="sm">
+                  <LogOut />
+                  Sign out
+                </Button>
+              }
+              title="Sign out?"
+              description="You'll need to log in again to continue."
+              confirmLabel="Sign out"
+              variant="default"
+              icon={LogOut}
+              onConfirm={handleLogout}
+            />
           </div>
         </div>
       </header>

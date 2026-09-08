@@ -39,16 +39,34 @@ class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
 
-class ResetPasswordRequest(BaseModel):
+class ResetPasswordVerifyRequest(BaseModel):
     email: EmailStr
     # Same shape as OTPVerifyRequest.otp -- malformed input rejected here,
     # before it can reach the lockout/attempt-counting logic.
     otp: str = Field(pattern=r"^\d{6}$")
+
+
+class ResetPasswordVerifyResponse(BaseModel):
+    # Proves OTP possession without re-exposing the raw code or completing
+    # the reset -- see app/services/password_reset_service.py.
+    reset_token: str
+    expires_in: int
+
+
+class ResetPasswordRequest(BaseModel):
+    # No email/otp here -- reset_token (minted by /auth/reset-password/verify)
+    # is the only proof of account access this request carries.
+    reset_token: str = Field(min_length=1)
     new_password: str = Field(min_length=1, max_length=256)
 
     @model_validator(mode="after")
     def _check_password_strength(self) -> "ResetPasswordRequest":
-        validate_password_strength(self.new_password, str(self.email))
+        # Only the email-independent rules (length/letter/digit) can run
+        # here -- there's no email in this request to check the
+        # not-same-as-local-part rule against. That rule is re-checked,
+        # email-aware, in password_reset_service.reset_password once
+        # reset_token is decoded and the user is known (raises WeakPasswordError).
+        validate_password_strength(self.new_password, "")
         return self
 
 

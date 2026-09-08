@@ -5,12 +5,14 @@ import pytest
 
 from app.core.security import (
     create_access_token,
+    create_purpose_token,
     decode_access_token,
     generate_otp_code,
     generate_refresh_token,
     hash_otp_code,
     hash_password,
     hash_refresh_token,
+    hash_reset_binding,
     verify_otp_code,
     verify_password,
 )
@@ -76,6 +78,13 @@ class TestAccessToken:
         assert payload["sub"] == "user-123"
         assert payload["role"] == "user"
 
+    def test_carries_access_purpose_claim(self):
+        """get_current_user (app/api/deps.py) rejects any token whose
+        purpose isn't "access" -- an access token must always carry it."""
+        token = create_access_token(subject="user-123", role="user")
+        payload = decode_access_token(token)
+        assert payload["purpose"] == "access"
+
     def test_expired_token_is_rejected(self):
         token = create_access_token(subject="user-123", role="user", expires_delta=timedelta(seconds=-1))
         with pytest.raises(jwt.ExpiredSignatureError):
@@ -100,3 +109,32 @@ class TestAccessToken:
         forged = jwt.encode({"sub": "user-123", "role": "admin"}, "wrong-secret", algorithm="HS256")
         with pytest.raises(jwt.InvalidTokenError):
             decode_access_token(forged)
+
+
+class TestPurposeToken:
+    def test_roundtrip(self):
+        token = create_purpose_token(
+            subject="user-123", purpose="password_reset", expires_delta=timedelta(minutes=10), pwd_fp="abc123"
+        )
+        payload = decode_access_token(token)
+        assert payload["sub"] == "user-123"
+        assert payload["purpose"] == "password_reset"
+        assert payload["pwd_fp"] == "abc123"
+
+    def test_expired_purpose_token_is_rejected(self):
+        token = create_purpose_token(
+            subject="user-123", purpose="password_reset", expires_delta=timedelta(seconds=-1)
+        )
+        with pytest.raises(jwt.ExpiredSignatureError):
+            decode_access_token(token)
+
+
+class TestResetBinding:
+    def test_deterministic(self):
+        assert hash_reset_binding("some-hash") == hash_reset_binding("some-hash")
+
+    def test_changes_when_password_hash_changes(self):
+        """The whole single-use mechanism for reset_token relies on this --
+        a reset happening once must change the fingerprint so the same
+        token can never be redeemed a second time."""
+        assert hash_reset_binding("hash-before-reset") != hash_reset_binding("hash-after-reset")

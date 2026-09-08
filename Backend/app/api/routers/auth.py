@@ -23,6 +23,8 @@ from app.schemas.auth import (
     RefreshResponse,
     RegisterRequest,
     ResetPasswordRequest,
+    ResetPasswordVerifyRequest,
+    ResetPasswordVerifyResponse,
     TokenResponse,
     UserOut,
 )
@@ -204,12 +206,23 @@ async def forgot_password(
     )
 
 
+@router.post("/reset-password/verify", response_model=ResetPasswordVerifyResponse)
+@limiter.limit("10/minute")
+async def verify_reset_password_otp(
+    request: Request, payload: ResetPasswordVerifyRequest, db: AsyncSession = Depends(get_db)
+) -> ResetPasswordVerifyResponse:
+    reset_token, expires_in = await password_reset_service.verify_reset_otp(
+        db, email=str(payload.email), otp=payload.otp
+    )
+    return ResetPasswordVerifyResponse(reset_token=reset_token, expires_in=expires_in)
+
+
 @router.post("/reset-password", response_model=MessageResponse)
 @limiter.limit("10/minute")
 async def reset_password(
     request: Request, payload: ResetPasswordRequest, db: AsyncSession = Depends(get_db)
 ) -> MessageResponse:
     await password_reset_service.reset_password(
-        db, email=str(payload.email), otp=payload.otp, new_password=payload.new_password
+        db, reset_token=payload.reset_token, new_password=payload.new_password
     )
     return MessageResponse(message="Password reset. Please log in with your new password.")

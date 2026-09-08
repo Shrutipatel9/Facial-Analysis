@@ -57,15 +57,26 @@ export const forgotPasswordSchema = z.object({
 
 export type ForgotPasswordFormValues = z.infer<typeof forgotPasswordSchema>
 
-export const resetPasswordSchema = z.object({
+export const resetOtpSchema = z.object({
   otp: z
     .string()
     .length(6, "Enter the 6-digit code.")
     .regex(/^\d{6}$/, "Code must be 6 digits."),
-  newPassword: passwordSchema,
 })
 
-export type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>
+export type ResetOtpFormValues = z.infer<typeof resetOtpSchema>
+
+export const newPasswordSchema = z
+  .object({
+    newPassword: passwordSchema,
+    confirmPassword: z.string().min(1, "Re-enter your new password."),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Passwords do not match.",
+    path: ["confirmPassword"],
+  })
+
+export type NewPasswordFormValues = z.infer<typeof newPasswordSchema>
 
 /** Scores 0-4, mirroring the backend's rules only (length, letter, digit) --
  * plus a couple of UX-only bonus signals (mixed case, symbol) that the
