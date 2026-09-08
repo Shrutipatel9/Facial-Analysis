@@ -20,22 +20,20 @@ import { cn } from "@/lib/utils"
 type ConfirmVariant = "destructive" | "default"
 
 interface ConfirmDialogProps {
-  trigger: ReactElement
+  /** Optional when using controlled `open` / `onOpenChange`. */
+  trigger?: ReactElement
   title: string
   description?: ReactNode
   confirmLabel?: string
   cancelLabel?: string
-  /** Visual tone for the icon + confirm button. Defaults to destructive. */
   variant?: ConfirmVariant
-  /** Optional override icon; otherwise derived from variant. */
   icon?: LucideIcon
   onConfirm: () => void | Promise<void>
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
-const VARIANT_STYLES: Record<
-  ConfirmVariant,
-  { iconWrap: string; icon: LucideIcon }
-> = {
+const VARIANT_STYLES: Record<ConfirmVariant, { iconWrap: string; icon: LucideIcon }> = {
   destructive: {
     iconWrap: "bg-destructive/10 text-destructive",
     icon: AlertTriangle,
@@ -48,8 +46,7 @@ const VARIANT_STYLES: Record<
 
 /**
  * Standing project convention: every destructive/irreversible action goes
- * through this dialog — never fire directly on click. One shared UI for
- * logout, delete, and future confirmations.
+ * through this dialog — never fire directly on click.
  */
 export function ConfirmDialog({
   trigger,
@@ -60,9 +57,19 @@ export function ConfirmDialog({
   variant = "destructive",
   icon,
   onConfirm,
+  open: openProp,
+  onOpenChange,
 }: ConfirmDialogProps) {
-  const [open, setOpen] = useState(false)
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
   const [isPending, setIsPending] = useState(false)
+
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp : uncontrolledOpen
+
+  function setOpen(next: boolean) {
+    if (!isControlled) setUncontrolledOpen(next)
+    onOpenChange?.(next)
+  }
 
   const styles = VARIANT_STYLES[variant]
   const Icon = icon ?? styles.icon
@@ -79,21 +86,14 @@ export function ConfirmDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={(next) => !isPending && setOpen(next)}>
-      <AlertDialogTrigger render={trigger} />
+      {trigger ? <AlertDialogTrigger render={trigger} /> : null}
       <AlertDialogContent size="sm" className="gap-0 overflow-hidden p-0 sm:max-w-[22rem]">
         <div className="flex flex-col items-center gap-4 px-6 pt-7 pb-5 text-center">
-          <AlertDialogMedia
-            className={cn(
-              "mb-0 size-12 rounded-full shadow-none ring-0",
-              styles.iconWrap
-            )}
-          >
+          <AlertDialogMedia className={cn("mb-0 size-12 rounded-full shadow-none ring-0", styles.iconWrap)}>
             <Icon className="size-5" aria-hidden />
           </AlertDialogMedia>
           <AlertDialogHeader className="place-items-center gap-2 text-center sm:place-items-center sm:text-center">
-            <AlertDialogTitle className="text-lg font-semibold tracking-tight">
-              {title}
-            </AlertDialogTitle>
+            <AlertDialogTitle className="text-lg font-semibold tracking-tight">{title}</AlertDialogTitle>
             {description ? (
               <AlertDialogDescription className="text-sm leading-relaxed text-muted-foreground">
                 {description}

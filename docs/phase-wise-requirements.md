@@ -84,30 +84,32 @@ Dependency chain: **0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9**, s
 - **Security considerations:** Server-side re-validation of `disclaimer_accepted` (`BR-003`) — client-side gating alone is insufficient.
 - **Testing requirements:** `docs/testing-strategy.md` §2 rows for `FR-001`, `FR-003`/`FR-004`/`BR-003`.
 - **Acceptance criteria:** Landing page CTA routes into signup; questionnaire submission is impossible without the disclaimer checked, enforced by the backend even if the UI is bypassed.
-- **Prerequisites:** **Blocking prerequisite specific to this phase:** the literal 23-question set and branching tree must be sourced/confirmed before implementation steps in `D:\zzz\onboarding-questionnaire\plans.md` can be finalized (see `docs/prd.md` §7). This is the single most consequential open item in the whole documentation set — flag it to the client early, since it blocks this phase's real implementation start even though planning can proceed.
+- **Prerequisites:** Phase 1 complete. **Formerly-blocking prerequisite, now resolved:** the literal 23-question set and branching tree is specified in `docs/onboarding_questionnaire_spec.md` (client-sourced, `client_requirements.md` v1.6). Two small items in that spec remain `[Assumption]` pending client confirmation (Q9/Q11 follow-up shape, Q19's exact branching condition) — implemented per the spec's own stated working assumptions; neither blocks implementation.
 - **Expected deliverables:** Landing page; full questionnaire flow with disclaimer gate; `D:\zzz\landing-page\plans.md` and `D:\zzz\onboarding-questionnaire\plans.md` executed.
-- **Potential risks:** Starting questionnaire implementation before the question set is confirmed risks building the wrong branching logic and reworking it later.
-- **Open questions:** Literal question/branching content (blocking, see above).
+- **Potential risks:** The two remaining `[Assumption]` items could require a small content/validation change once the client confirms them — low risk, since both are isolated to `Backend/app/services/questionnaire_service.py`'s `QUESTIONS` constant and don't affect the overall architecture.
+- **Open questions:** None blocking — see the two `[Assumption]` items in `docs/onboarding_questionnaire_spec.md` §5.
 
 ## Phase 3 — Photo Upload & Validation
 
+**Status: Implemented.** See `D:\zzz\photo-upload-validation\plans.md` (Implementation status: DONE).
+
 **Objective:** Let a user upload a multi-angle photo set with an enforced backend validation gate.
 
-- **Scope:** Photo requirements/checklist screen, multi-angle upload, backend validation pipeline, rejection-with-reason handling.
+- **Scope:** Photo requirements/checklist screen, per-angle capture (upload from device or live in-browser camera), backend validation pipeline, rejection-with-reason handling. See [`docs/photo_capture_spec.md`](./photo_capture_spec.md) for the full flow spec.
 - **Modules/features included:** `photo-upload-validation`.
 - **Functional requirements:** `FR-005`, `FR-006`.
-- **Technical requirements:** Validation checks per `BR-005` (face count, frame proportion, occlusion, resolution, brightness) — exact thresholds set during this phase (`ASM-002`), not before.
-- **Dependencies:** Phase 1 (uploads are tied to an authenticated user); does not depend on Phase 2's questionnaire content, only on the user existing.
+- **Technical requirements:** Six validation checks per `BR-005` (file readability, resolution, brightness, face count, frame proportion, occlusion) — thresholds set during this phase (`ASM-002`), documented in `docs/security.md` §6.
+- **Dependencies:** Phase 1 (uploads are tied to an authenticated user); does not depend on Phase 2's questionnaire *content*, but the current guard chain requires the questionnaire be complete before `/photos` is reachable (same auto-route-until-done pattern as Phase 2, not a data dependency).
 - **API requirements:** `docs/api-specification.md` §5.
-- **Database requirements:** `Photo` (`docs/database-design.md` §2.5); resolve the open storage-mechanism question (§5 of that doc) in this phase.
+- **Database requirements:** `Photo` (`docs/database-design.md` §2.5) — storage-mechanism question resolved via a swappable `PhotoStorage` interface.
 - **UI/UX requirements:** `docs/ui-ux-design.md` §3.4.
-- **Security considerations:** `docs/security.md` §4 — this gate is a safety mechanism given Phase 1's no-review auto-publish (`BR-004`, `CON-006`), not just UX polish; do not weaken it under schedule pressure.
-- **Testing requirements:** `docs/testing-strategy.md` §2 rows for `FR-005`/`FR-006`/`BR-005` and `BR-004`.
-- **Acceptance criteria:** Each of the five validation checks independently triggers a correctly-reasoned rejection; a fully compliant photo set passes; no downstream analysis can be triggered from a rejected set.
-- **Prerequisites:** Phase 1 complete. Validation thresholds decided and documented in `docs/security.md` §7 before this phase is marked done (per `client_requirements.md`'s own instruction to document them once implemented).
-- **Expected deliverables:** Working upload+validation flow; thresholds recorded in `docs/security.md`; `D:\zzz\photo-upload-validation\plans.md` executed.
-- **Potential risks:** Under-tuned thresholds either reject good photos (user friction) or admit bad ones (feeds a low-quality auto-published report, `BR-004`) — tune deliberately, not by guesswork, and revisit after Phase 4/5 integration testing.
-- **Open questions:** Exact thresholds (resolved *during* this phase, per `ASM-002` — not before); photo storage mechanism.
+- **Security considerations:** `docs/security.md` §6 — this gate is a safety mechanism given Phase 1's no-review auto-publish (`BR-004`, `CON-006`), not just UX polish; do not weaken it under schedule pressure.
+- **Testing requirements:** `docs/testing-strategy.md` §2 rows for `FR-005`/`FR-006`/`BR-005` and `BR-004`; see `Backend/tests/integration/test_photo_flow.py`.
+- **Acceptance criteria:** Each of the six validation checks independently triggers a correctly-reasoned rejection; a fully compliant photo set passes; no downstream analysis can be triggered from a rejected set (`is_photo_set_ready()` is the single `BR-004` enforcement point, and the eventual `POST /analysis` endpoint must call it as its first guard clause).
+- **Prerequisites:** Phase 1 complete. Validation thresholds decided and documented in `docs/security.md` §6.
+- **Expected deliverables:** Working upload+validation flow (upload and camera paths); thresholds recorded in `docs/security.md`; `D:\zzz\photo-upload-validation\plans.md` executed.
+- **Potential risks:** Under-tuned thresholds either reject good photos (user friction) or admit bad ones (feeds a low-quality auto-published report, `BR-004`) — the current thresholds are reasonable defaults, not empirically tuned against real device photos; revisit after Phase 4/5 integration testing.
+- **Open questions:** `ASM-005` (3-angle default vs. Qoves' 7-pose set) — not yet client-confirmed, see `docs/photo_capture_spec.md` §5. DNG/RAW upload support — not implemented this pass (JPG/PNG/HEIC only), flagged as a follow-up. Occlusion check is a simplified confidence-based heuristic, not a real glasses/hat classifier (`docs/security.md` §6).
 
 ## Phase 4 — Facial Analysis Engine
 

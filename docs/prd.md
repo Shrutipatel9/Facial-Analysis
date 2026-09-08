@@ -34,7 +34,7 @@ Each area below corresponds to a module in [`docs/phase-wise-requirements.md`](.
 | FR-003 | 23-question branching questionnaire covering medical conditions/medications, self-perceived best feature, comfort with specific recommendation types (e.g. weight loss), frequency of appearance-related thoughts, and similar lifestyle/self-perception questions. |
 | FR-004 | Questionnaire must end with a mandatory, checkbox-gated disclaimer (no BDD-related concerns; recommendations are informational only, not medical guidance). Submission is blocked without this checkbox (`BR-003`). |
 
-The exact 23 questions and their branching logic are not enumerated in `client_requirements.md` beyond the categories above — **[Open Question]**: the literal question set/branching tree must be sourced from the client's Qoves onboarding reference material or confirmed with the client before this module's `plans.md` is finalized for implementation.
+**Resolved** — the literal 23 questions and branching logic are specified in [`docs/onboarding_questionnaire_spec.md`](./onboarding_questionnaire_spec.md), sourced from the client's Qoves reference material (`client_requirements.md` v1.6). Two small items in that spec remain `[Assumption]` pending client confirmation (see its §5); everything else is confirmed.
 
 ### 3.4 Photo Upload & Validation
 | ID | Requirement |
@@ -122,7 +122,7 @@ Restated from `docs/brd.md` §3.2 for product-scope clarity: admin panel, full r
 | ID | Question | Impact |
 |---|---|---|
 | OQ-002 | Report price | Payment UI/API must treat price as configurable, not hardcoded (see `docs/api-specification.md` §Payment). |
-| — [new, raised here] | Literal 23-question set and branching tree | Needed before `onboarding-questionnaire` module implementation begins — see §3.3 above. Must be confirmed against the client's Qoves reference material before `D:\zzz\onboarding-questionnaire\plans.md` implementation steps are finalized. |
+| — [new, raised here] | Literal 23-question set and branching tree | **Resolved** — see §3.3 above and `docs/onboarding_questionnaire_spec.md`. |
 
 ## 8. Related Documents
 

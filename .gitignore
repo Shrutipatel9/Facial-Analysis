@@ -27,3 +27,9 @@ Thumbs.db
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Local-disk photo storage (dev default, PHOTO_STORAGE_PROVIDER=local) --
+# user-uploaded content, never committed. The face-detection model asset in
+# Backend/var/models/ IS committed (small, ~230KB, avoids a fragile
+# download-at-first-run step for the team continuing this post-handoff).
+Backend/var/photo_storage/

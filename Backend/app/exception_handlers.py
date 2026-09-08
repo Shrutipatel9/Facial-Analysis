@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from app.exceptions import (
     AccountLockedError,
     CsrfRejectedError,
+    DisclaimerNotAcceptedError,
     EmailAlreadyVerifiedError,
     EmailDeliveryError,
     InvalidCredentialsError,
@@ -17,6 +18,11 @@ from app.exceptions import (
     OTPCooldownError,
     OTPExpiredError,
     OTPInvalidError,
+    PhotoAngleUnknownError,
+    PhotoNotFoundError,
+    PhotoSetAlreadyCompleteError,
+    PhotoUploadInvalidError,
+    QuestionnaireAnswersInvalidError,
     RefreshTokenExpiredError,
     RefreshTokenInvalidError,
     RefreshTokenReuseError,
@@ -152,4 +158,46 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content=_error("WEAK_PASSWORD", str(exc)),
+        )
+
+    @app.exception_handler(DisclaimerNotAcceptedError)
+    async def _disclaimer_not_accepted(request: Request, exc: DisclaimerNotAcceptedError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=_error("DISCLAIMER_NOT_ACCEPTED", "You must accept the disclaimer before submitting."),
+        )
+
+    @app.exception_handler(QuestionnaireAnswersInvalidError)
+    async def _questionnaire_answers_invalid(request: Request, exc: QuestionnaireAnswersInvalidError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=_error("QUESTIONNAIRE_ANSWERS_INVALID", str(exc), details=exc.details),
+        )
+
+    @app.exception_handler(PhotoAngleUnknownError)
+    async def _photo_angle_unknown(request: Request, exc: PhotoAngleUnknownError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=_error("PHOTO_ANGLE_UNKNOWN", "Unknown photo angle."),
+        )
+
+    @app.exception_handler(PhotoUploadInvalidError)
+    async def _photo_upload_invalid(request: Request, exc: PhotoUploadInvalidError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=_error("PHOTO_UPLOAD_INVALID", str(exc) or "Invalid photo upload."),
+        )
+
+    @app.exception_handler(PhotoSetAlreadyCompleteError)
+    async def _photo_set_already_complete(request: Request, exc: PhotoSetAlreadyCompleteError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=_error("PHOTO_SET_ALREADY_COMPLETE", "All required photos have already been submitted."),
+        )
+
+    @app.exception_handler(PhotoNotFoundError)
+    async def _photo_not_found(request: Request, exc: PhotoNotFoundError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content=_error("PHOTO_NOT_FOUND", "Photo not found."),
         )

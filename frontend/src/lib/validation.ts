@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import type { Question } from "@/lib/questionnaire/questionnaireApi"
+
 // Mirrors Backend/app/services/password_service.py -- keep these two in
 // sync if the rules ever change. Client-side validation is UX only; the
 // backend re-validates and is the actual source of truth.
@@ -90,3 +92,23 @@ export function scorePasswordStrength(password: string): 0 | 1 | 2 | 3 | 4 {
   if (/[^A-Za-z0-9]/.test(password) || password.length >= 16) score++
   return score as 0 | 1 | 2 | 3 | 4
 }
+
+/** One schema per question type rather than 25 hand-written schemas --
+ * mirrors the backend's per-question required/type/options validation
+ * (Backend/app/services/questionnaire_service.py's _validate_and_clean),
+ * client-side only; the backend re-validates and is the actual source of
+ * truth (BR-003 in particular must never be trusted client-side alone). */
+export function answerSchemaFor(question: Question) {
+  if (question.type === "multi_select") {
+    return question.required
+      ? z.array(z.string()).min(1, "Select at least one option.")
+      : z.array(z.string())
+  }
+  return question.required
+    ? z.string().trim().min(1, "This field is required.")
+    : z.string().trim().optional()
+}
+
+export const disclaimerSchema = z.object({
+  disclaimerAccepted: z.literal(true, { message: "You must accept before submitting." }),
+})

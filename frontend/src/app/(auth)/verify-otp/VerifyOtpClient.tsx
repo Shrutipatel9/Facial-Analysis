@@ -29,7 +29,7 @@ export function VerifyOtpClient() {
   if (!isValid) {
     return (
       <AuthLayout title="Verification session not found" description="This link is missing or no longer valid.">
-        <Button render={<Link href="/signup" />} size="lg" className="w-full">
+        <Button render={<Link href="/signup" />} nativeButton={false} size="lg" className="w-full">
           Start over
         </Button>
       </AuthLayout>

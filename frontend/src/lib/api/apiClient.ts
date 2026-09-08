@@ -4,6 +4,7 @@
  */
 
 export {
+  authenticatedFormRequest,
   authenticatedRequest,
   checkBackendHealth,
   publicRequest,

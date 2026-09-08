@@ -61,20 +61,23 @@ Exact cardinalities (e.g. whether a user can have multiple in-flight reports) ar
 |---|---|
 | id | |
 | user_id | |
-| answers | The 23 branching answers (`FR-003`). **[Recommendation]**: store as structured JSON (question id → answer) rather than 23 fixed columns, since the literal question set is not yet finalized (see `docs/prd.md` §7) — a fixed-column schema would need a migration every time the question set changes during development. |
-| disclaimer_accepted | bool, must be true before submission is accepted (`BR-003`, `FR-004`) |
+| answers | The 23 branching answers (`FR-003`), keyed by question id per [`docs/onboarding_questionnaire_spec.md`](./onboarding_questionnaire_spec.md) §6: `q1`..`q23`, plus `q9_details`/`q11_details` (optional free-text follow-ups, `[Assumption]` pending client confirmation — see that spec's §5). Stored as `JSONB` (question id → answer; multi-select `q7` → array of strings), not 23+ fixed columns — this was already the recommendation here before the content was finalized, and still applies now: the two remaining `[Assumption]` items could still change the shape slightly, and a fixed-column schema would force a migration for that. An answer submitted for a question that isn't currently visible under its `show_if` condition (e.g. `q19` when `q4` = Feminine) is silently dropped server-side before storage, never persisted — see `Backend/app/services/questionnaire_service.py`. |
+| disclaimer_accepted | bool, must be true before submission is accepted (`BR-003`, `FR-004`) — re-validated server-side (`DISCLAIMER_NOT_ACCEPTED` on failure), not just gated client-side |
 | submitted_at | |
 
 ### 2.5 Photo (`DATA-005`)
+Implemented in `photo-upload-validation` (`Backend/app/models/photo.py`). One row per `(user_id, angle)` — `UniqueConstraint`, not one row per upload attempt: a retry upserts the existing row in place (`Backend/app/services/photo_service.py`), matching the module's one-and-done posture (no separate upload-history table).
+
 | Field | Notes |
 |---|---|
 | id | |
-| user_id | |
-| angle | Which of the multi-angle set this is (`FR-005`) |
-| storage_reference | Where the file lives — storage mechanism not specified by the client; **[Open Question]**, and now more open as of v1.2 since Supabase (and its bundled Storage product) is no longer part of the stack — candidates include S3-compatible object storage or another provider, to be decided during the `photo-upload-validation` module's implementation |
-| validation_status | Pass/fail (`BR-005`) |
-| validation_result | Structured detail on which check(s) failed, for the rejection-reason UI (`docs/ui-ux-design.md` §3.4) |
-| uploaded_at | |
+| user_id | FK → `users.id`, `ondelete="CASCADE"`, indexed |
+| angle | Which of the multi-angle set this is (`FR-005`). String, validated in code against `REQUIRED_ANGLES` (`Backend/app/services/photo_validation_service.py`) rather than a Postgres enum — same migration-flexibility rationale as `answers` below, since `ASM-005` (3 vs. Qoves' 7 angles) is not yet client-confirmed; see [`docs/photo_capture_spec.md`](./photo_capture_spec.md) §1/§5 |
+| capture_method | `"upload"` \| `"camera"` — **[Recommendation, per `docs/photo_capture_spec.md` §4]**: not a client-stated requirement, kept only in case it's useful for analytics/debugging later |
+| storage_reference | Where the file lives. **Resolved** (was an Open Question through v1.2): the storage mechanism is a swappable interface (`PhotoStorage` ABC, `Backend/app/services/photo_storage.py`), mirroring `EmailSender`'s pattern — `LocalDiskPhotoStorage` (dev default, `PHOTO_STORAGE_PROVIDER=local`) and a real `S3PhotoStorage` (S3-compatible, incl. non-AWS via `S3_ENDPOINT_URL`) both implement it, selected via `PHOTO_STORAGE_PROVIDER`. Picking a concrete vendor later is a new implementation, not a schema or service rewrite. |
+| validation_status | `"pending"` \| `"passed"` \| `"failed"` (`BR-005`) |
+| validation_result | `JSONB`, always all six checks (not just failures) — `{"checks": [{"check", "passed", "reason"}, ...]}` — see `docs/security.md` §6 for the check list and thresholds. Powers the rejection-reason UI (`docs/ui-ux-design.md` §3.4). |
+| uploaded_at | `server_default=now()`, `onupdate=now()` — reflects the latest attempt on a retry, not the first |
 
 ### 2.6 Facial Analysis Result (`DATA-006`)
 | Field | Notes |
@@ -120,8 +123,9 @@ Alembic (`NFR-003`) manages schema evolution against the SQLAlchemy models. Beca
 | Item | Status |
 |---|---|
 | Can a user have multiple reports? | Not stated — **[Open Question]** for `report-generation` module. |
-| Photo storage mechanism (object storage provider, now that Supabase Storage is off the table as of v1.2) | Not stated — **[Open Question]**. |
+| Photo storage mechanism | **Resolved** — swappable `PhotoStorage` interface, see §2.5 above. |
 | Password hashing algorithm | Not stated — **[Recommendation]**, see `docs/security.md` §7. |
+| 3-angle default vs. Qoves' 7-pose set (`ASM-005`) | Not yet confirmed by the client — **[Open Question]**, see [`docs/photo_capture_spec.md`](./photo_capture_spec.md) §5. |
 
 ## 6. Related Documents
 

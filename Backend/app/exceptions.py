@@ -104,3 +104,45 @@ class WeakPasswordError(DomainError):
     longer carries the user's email (only reset_token + new_password), so
     the email-aware half of validate_password_strength can only run after
     the token is decoded and the user resolved."""
+
+
+class DisclaimerNotAcceptedError(DomainError):
+    """POST /questionnaire/responses with disclaimer_accepted != true.
+    BR-003 is a hard, non-optional gate -- must be re-validated here even
+    though the frontend also disables Submit client-side."""
+
+
+class QuestionnaireAnswersInvalidError(DomainError):
+    """A required, currently-visible question is missing/empty, an answer
+    doesn't match its question's type/allowed options, or the payload
+    contains a key that isn't a known question id at all. Carries the
+    offending question id(s)/reason so the frontend can highlight the right
+    step -- see app/services/questionnaire_service._validate_and_clean."""
+
+    def __init__(self, details: list[dict[str, str]]) -> None:
+        self.details = details
+        super().__init__("One or more questionnaire answers are invalid.")
+
+
+class PhotoAngleUnknownError(DomainError):
+    """POST /photos with an `angle` that isn't in REQUIRED_ANGLES."""
+
+
+class PhotoUploadInvalidError(DomainError):
+    """The upload request itself is malformed -- missing file, wrong
+    content-type, or over PHOTO_MAX_UPLOAD_BYTES. Distinct from a photo
+    that decodes fine but fails a quality check (BR-005) -- that is not an
+    error, see photo_service.upload_photo."""
+
+
+class PhotoSetAlreadyCompleteError(DomainError):
+    """Upload attempted after every required angle already has a passed
+    photo (BR-004). A user who wants to redo a photo after full completion
+    isn't a supported flow in this phase -- one-and-done, same posture as
+    the questionnaire's no-resubmission rule."""
+
+
+class PhotoNotFoundError(DomainError):
+    """GET /photos/{id} for an id that doesn't exist or isn't owned by the
+    caller -- collapsed into one generic case, same anti-enumeration
+    posture as other not-found cases in this codebase."""

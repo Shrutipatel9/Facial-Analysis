@@ -1,66 +1,70 @@
 "use client"
 
-import { Loader2, LogOut } from "lucide-react"
-import { useRouter } from "next/navigation"
-import { toast } from "sonner"
+import { motion } from "motion/react"
+import { usePathname } from "next/navigation"
 
-import { Button } from "@/components/ui/button"
-import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { BrandLoader } from "@/components/branding/BrandLoader"
+import { Logo } from "@/components/branding/Logo"
+import { UserMenu } from "@/components/layout/UserMenu"
 import { useAuthGuard } from "@/hooks/useAuthGuard"
-import { getErrorMessage } from "@/lib/api/getErrorMessage"
-import * as authApi from "@/lib/auth/authApi"
-import { useAuthStore } from "@/store/authStore"
+import { usePhotoUploadGuard } from "@/hooks/usePhotoUploadGuard"
+import { useQuestionnaireGuard } from "@/hooks/useQuestionnaireGuard"
+import { cn } from "@/lib/utils"
+
+const FULL_BLEED = new Set(["/dashboard", "/questionnaire", "/photos"])
 
 export default function ProtectedRouteGroupLayout({ children }: { children: React.ReactNode }) {
-  const { isChecking } = useAuthGuard()
-  const user = useAuthStore((state) => state.user)
-  const router = useRouter()
-
-  async function handleLogout() {
-    try {
-      await authApi.logout()
-      toast.success("Signed out.")
-    } catch (err) {
-      toast.error(getErrorMessage(err))
-    } finally {
-      // logoutSession always clears Zustand locally; always leave protected routes.
-      router.replace("/login")
-    }
-  }
+  const { isChecking: isAuthChecking } = useAuthGuard()
+  const { isChecking: isQuestionnaireChecking } = useQuestionnaireGuard(!isAuthChecking)
+  const { isChecking: isPhotoChecking } = usePhotoUploadGuard(!isAuthChecking && !isQuestionnaireChecking)
+  const isChecking = isAuthChecking || isQuestionnaireChecking || isPhotoChecking
+  const pathname = usePathname()
+  const isFullBleed = FULL_BLEED.has(pathname)
 
   if (isChecking) {
-    return (
-      <div className="flex min-h-svh items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" aria-label="Loading" />
-      </div>
-    )
+    return <BrandLoader />
   }
 
   return (
-    <div className="min-h-svh">
-      <header className="border-b border-border">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
-          <span className="text-sm font-semibold tracking-tight">Facial Analysis</span>
-          <div className="flex items-center gap-3">
-            <span className="hidden text-sm text-muted-foreground sm:inline">{user?.email}</span>
-            <ConfirmDialog
-              trigger={
-                <Button variant="outline" size="sm">
-                  <LogOut />
-                  Sign out
-                </Button>
-              }
-              title="Sign out?"
-              description="You'll need to log in again to continue."
-              confirmLabel="Sign out"
-              variant="default"
-              icon={LogOut}
-              onConfirm={handleLogout}
-            />
-          </div>
+    <div
+      className={cn(
+        // isolate keeps -z-10 orbs inside this shell (avoids black peek-through
+        // in scrollbar gutters). overflow-x-hidden kills the horizontal bar.
+        "relative isolate flex flex-col overflow-x-hidden bg-[#f1f4f6]",
+        // Full-bleed: one viewport shell; only main scrolls when content overflows.
+        isFullBleed ? "h-svh overflow-y-hidden" : "min-h-svh"
+      )}
+    >
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden>
+        <div className="absolute top-[-20%] left-[-10%] h-[28rem] w-[28rem] rounded-full bg-primary/[0.07] blur-3xl" />
+        <div className="absolute right-[-8%] bottom-[-15%] h-[24rem] w-[24rem] rounded-full bg-primary/[0.05] blur-3xl" />
+      </div>
+
+      <motion.header
+        initial={{ opacity: 0, y: -6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: "easeOut" }}
+        className="z-40 shrink-0 border-b border-primary/10 bg-primary/[0.07] backdrop-blur-xl"
+      >
+        <div className="flex h-14 items-center justify-between px-5 sm:px-8">
+          <Logo href="/dashboard" size="md" />
+          <UserMenu />
         </div>
-      </header>
-      <main className="mx-auto max-w-5xl px-6 py-10">{children}</main>
+      </motion.header>
+
+      <motion.main
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className={cn(
+          "relative flex min-h-0 flex-1 flex-col",
+          // auto = scrollbar only when content actually overflows; never force both axes
+          isFullBleed && "overflow-x-hidden overflow-y-auto",
+          !isFullBleed && "mx-auto w-full max-w-6xl px-6 py-10 sm:py-12"
+        )}
+      >
+        {children}
+      </motion.main>
     </div>
   )
 }

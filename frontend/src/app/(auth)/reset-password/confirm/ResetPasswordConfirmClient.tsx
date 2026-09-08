@@ -14,7 +14,7 @@ export function ResetPasswordConfirmClient() {
   if (!resetToken) {
     return (
       <AuthLayout title="Reset session not found" description="This link is missing or no longer valid.">
-        <Button render={<Link href="/forgot-password" />} size="lg" className="w-full">
+        <Button render={<Link href="/forgot-password" />} nativeButton={false} size="lg" className="w-full">
           Start over
         </Button>
       </AuthLayout>

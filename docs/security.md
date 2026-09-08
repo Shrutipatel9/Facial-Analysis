@@ -59,13 +59,22 @@ CSP currently allows `'unsafe-inline'` / `'unsafe-eval'` for Next.js compatibili
 
 ## 6. Photo Validation as a Security/Quality Gate (BR-005, CON-006)
 
-Because Phase 1 auto-publishes reports with no admin review (`BR-002`), enforced photo validation is not just a UX nicety — it is the only safety gate between an unusable/adversarial input and a paying user's report (`BR-004`). Recommended checks (thresholds deferred to development, `ASM-002`):
+Because Phase 1 auto-publishes reports with no admin review (`BR-002`), enforced photo validation is not just a UX nicety — it is the only safety gate between an unusable/adversarial input and a paying user's report (`BR-004`). **`ASM-002`'s threshold deferral is now resolved** — implemented in `Backend/app/services/photo_validation_service.py`, run via MediaPipe's lightweight `FaceDetector` (BlazeFace short-range) + Pillow/OpenCV for pixel-level checks. All six checks always run and are always all six reported (not just failures), for the rejection-reason UI (`docs/ui-ux-design.md` §3.4, `docs/api-specification.md` §5):
 
-- Exactly one face detected.
-- Face occupies a reasonable proportion of the frame.
-- No obvious occlusion over eyes/mouth (glasses/hat).
-- Minimum resolution.
-- Basic brightness/exposure check.
+| Check | Method | Threshold |
+|---|---|---|
+| `file_readable` | `PIL.Image.open` decode | Must decode; short-circuits the rest if it doesn't (all five remaining checks reported as skipped-failed, not silently omitted) |
+| `resolution` | Shortest side, px | ≥ 640px |
+| `brightness` | Grayscale mean luminance (0–255) | 60–200 |
+| `face_count` | MediaPipe detections | Exactly 1 (0 → "no face detected", ≥2 → "multiple faces detected") |
+| `frame_proportion` | Face bounding-box area ÷ image area | 0.15–0.80 |
+| `occlusion` | Overall detection confidence | ≥ 0.75 |
+
+**These are delivery-team decisions (`ASM-002`), not client-stated** — reasonable defaults, expect a tuning pass once real device photos go through Phase 4/5 integration.
+
+**Occlusion is a simplified heuristic, not a real glasses/hat classifier.** `NormalizedKeypoint.score` and `.label` are always `0.0`/`None` for the BlazeFace short-range model — verified empirically against a real portrait during implementation, not documented anywhere in MediaPipe's own docs — so per-feature (eyes/mouth) confidence isn't available. The check falls back to the detector's overall confidence score at a stricter floor than `face_count`'s own detection threshold (0.75 vs. 0.5). A known limitation, not a gap to silently paper over.
+
+A request-level 15MB size cap (`PHOTO_MAX_UPLOAD_BYTES`) and content-type allow-list (JPEG/PNG/HEIC — DNG rejected, see `docs/api-specification.md` §5) are enforced before any of the above (decompression-bomb/DoS concern) — a real 4xx, not a `validation_result` entry.
 
 **Do not relax this gate to "checklist only"** — that reintroduces the risk `BR-004`/`CON-006` exist to prevent.
 

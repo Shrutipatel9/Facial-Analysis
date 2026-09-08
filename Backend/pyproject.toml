@@ -10,10 +10,15 @@ dependencies = [
     "email-validator>=2.3.0",
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
+    "mediapipe>=1.0.1",
+    "opencv-python-headless>=5.0.0.93",
+    "pillow>=12.3.0",
+    "pillow-heif>=1.7.0",
     "pwdlib[argon2]>=0.3.1",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
     "pyjwt>=2.13.0",
+    "python-multipart>=0.0.32",
     "slowapi>=0.1.10",
     "sqlalchemy[asyncio]>=2.0.52",
     "uvicorn>=0.52.4",
@@ -47,3 +52,10 @@ select = ["E", "F", "I", "UP", "B"]
 # as argument defaults -- this is idiomatic FastAPI, not the footgun the rule
 # is meant to catch.
 ignore = ["B008"]
+
+[[tool.mypy.overrides]]
+# Neither ships a py.typed marker/stubs. boto3 is only imported lazily
+# inside S3PhotoStorage (see photo_storage.py) -- local-provider
+# deployments never need it installed at all.
+module = ["mediapipe.*", "boto3.*"]
+ignore_missing_imports = true

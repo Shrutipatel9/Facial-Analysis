@@ -58,6 +58,20 @@ class Settings(BaseSettings):
     smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
     email_from: str | None = Field(default=None, alias="EMAIL_FROM")
 
+    # --- Photo storage (BR-005, database-design.md §2.5) ---
+    # "local" (dev default, writes to disk) or "s3". Storage mechanism was
+    # left open by the client (ASM-002) -- swappable the same way
+    # EMAIL_PROVIDER is, see app/services/photo_storage.py.
+    photo_storage_provider: str = Field(default="local", alias="PHOTO_STORAGE_PROVIDER")
+    photo_storage_local_dir: str = Field(default="var/photo_storage", alias="PHOTO_STORAGE_LOCAL_DIR")
+    photo_max_upload_bytes: int = Field(default=15 * 1024 * 1024, alias="PHOTO_MAX_UPLOAD_BYTES")
+    s3_bucket: str | None = Field(default=None, alias="S3_BUCKET")
+    s3_region: str | None = Field(default=None, alias="S3_REGION")
+    s3_access_key_id: str | None = Field(default=None, alias="S3_ACCESS_KEY_ID")
+    s3_secret_access_key: str | None = Field(default=None, alias="S3_SECRET_ACCESS_KEY")
+    # Only needed for S3-compatible non-AWS providers (R2, MinIO, Spaces).
+    s3_endpoint_url: str | None = Field(default=None, alias="S3_ENDPOINT_URL")
+
     @field_validator("jwt_secret", "otp_pepper")
     @classmethod
     def _reject_placeholder_secrets(cls, value: str) -> str:
@@ -88,6 +102,23 @@ class Settings(BaseSettings):
                     "(https://myaccount.google.com/apppasswords) -- Gmail rejects "
                     "your normal account password over SMTP."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _require_s3_fields_when_selected(self) -> "Settings":
+        if self.photo_storage_provider == "s3":
+            missing = [
+                name
+                for name, value in (
+                    ("S3_BUCKET", self.s3_bucket),
+                    ("S3_REGION", self.s3_region),
+                    ("S3_ACCESS_KEY_ID", self.s3_access_key_id),
+                    ("S3_SECRET_ACCESS_KEY", self.s3_secret_access_key),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(f"PHOTO_STORAGE_PROVIDER=s3 requires {', '.join(missing)} to be set.")
         return self
 
     @property

@@ -223,6 +223,41 @@ export async function authenticatedRequest<T>(
   return toResult<T>(response)
 }
 
+/**
+ * Same 401-refresh-retry machinery as authenticatedRequest, but for a
+ * multipart FormData body (file uploads) -- deliberately no Content-Type
+ * header here, the browser sets the multipart boundary itself when given a
+ * FormData body.
+ */
+export async function authenticatedFormRequest<T>(path: string, formData: FormData): Promise<T> {
+  const buildInit = (): RequestInit => {
+    const { accessToken } = useAuthStore.getState()
+    return {
+      method: "POST",
+      headers: {
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: formData,
+    }
+  }
+
+  let response = await rawFetch(path, buildInit())
+
+  if (response.status === 401) {
+    try {
+      await refreshSession()
+    } catch (err) {
+      if (isInvalidRefreshSessionError(err)) {
+        return toResult<T>(response)
+      }
+      throw err
+    }
+    response = await rawFetch(path, buildInit())
+  }
+
+  return toResult<T>(response)
+}
+
 export async function checkBackendHealth(): Promise<{ status: string }> {
   const response = await rawFetch("/health", { method: "GET" })
   return toResult<{ status: string }>(response)

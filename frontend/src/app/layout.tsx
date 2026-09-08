@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Facial Analysis",
+  title: "FaceIQ",
   description: "AI-driven facial aesthetics analysis platform.",
 };
 
@@ -34,7 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           for anyone with the extension installed. This only suppresses the
           warning for body's OWN attributes/text -- it does not hide
           mismatches in any child content, so real bugs still surface. */}
-      <body className="min-h-full flex flex-col" suppressHydrationWarning>
+      <body className={`${geistSans.className} min-h-full flex flex-col`} suppressHydrationWarning>
         {/* Locked to light: the product's design language is a light,
             soft-grey surface (never black) -- see globals.css's --background
             token. enableSystem is intentionally off so OS dark-mode

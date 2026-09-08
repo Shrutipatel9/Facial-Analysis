@@ -56,7 +56,7 @@ export function NewPasswordForm({ resetToken }: NewPasswordFormProps) {
         <p className="text-sm text-muted-foreground">
           This reset link is invalid or has expired. Please request a new one.
         </p>
-        <Button render={<Link href="/forgot-password" />} size="lg" className="w-full">
+        <Button render={<Link href="/forgot-password" />} nativeButton={false} size="lg" className="w-full">
           Start over
         </Button>
       </div>

@@ -42,19 +42,29 @@
 
 | Method & Path | Purpose | Auth required | Requirement ID |
 |---|---|---|---|
-| `GET /questionnaire` | Retrieve the (branching) question set | Yes | `FR-003` |
-| `POST /questionnaire/responses` | Submit answers; rejected server-side if `disclaimer_accepted` is not true | Yes | `FR-003`, `FR-004`, `BR-003` |
+| `GET /questionnaire` | Retrieve the fixed 25-entry question set (23 questions + 2 conditional follow-ups) + disclaimer text | Yes | `FR-003` |
+| `GET /questionnaire/status` | `{completed: bool}` — has this user already submitted a response | Yes | `FR-003` (supports the auto-route-into-questionnaire-until-done UX) |
+| `POST /questionnaire/responses` | Submit answers; rejected server-side if `disclaimer_accepted` is not true or a required visible answer is missing/invalid | Yes | `FR-003`, `FR-004`, `BR-003` |
 
-The exact shape of the branching question set is not finalized (see `docs/prd.md` §7) — `GET /questionnaire` may need to return conditional next-question logic once that content exists.
+Content is finalized — see [`docs/onboarding_questionnaire_spec.md`](./onboarding_questionnaire_spec.md) (client-sourced) and `Backend/app/services/questionnaire_service.py`. `GET /questionnaire` returns each question's `id`, `number`, `text`, `type` (`text`/`single_select`/`multi_select`/`yes_no`), `options`, `required`, and an optional `show_if` (`{question_id, in_values}`) — the entire branching model is this one relationship, reused for `q19` and for the `q9`/`q11` follow-ups. `POST /questionnaire/responses` takes `{answers: {[question_id]: string | string[]}, disclaimer_accepted: boolean}`; error codes `DISCLAIMER_NOT_ACCEPTED` (422) and `QUESTIONNAIRE_ANSWERS_INVALID` (422, carries per-question `details`). An answer submitted for a question that isn't currently visible under its `show_if` condition is silently dropped, not rejected — see `docs/database-design.md` §2.4.
 
 ## 5. Photo Upload & Validation
 
+Implemented in `photo-upload-validation` (`Backend/app/api/routers/photos.py`). Angle set (3-angle default, `ASM-005` not yet client-confirmed) and per-photo capture guidance are specified in [`docs/photo_capture_spec.md`](./photo_capture_spec.md).
+
 | Method & Path | Purpose | Auth required | Requirement ID |
 |---|---|---|---|
-| `POST /photos` | Upload one angle of a multi-angle photo set; runs backend validation synchronously or returns a pending-validation state | Yes | `FR-005`, `FR-006`, `BR-005` |
-| `GET /photos/{id}` | Retrieve validation status/result for a specific photo | Yes | `BR-005` |
+| `POST /photos` | `multipart/form-data`: `angle`, `capture_method` (`upload`\|`camera`), `file`. Validates synchronously and returns the outcome — see below. Upserts by `(user_id, angle)`: a retry replaces the existing row for that angle, not a new one. | Yes | `FR-005`, `FR-006`, `BR-005` |
+| `GET /photos/status` | Per-angle status (`angle`, `label`, `instruction`, `photo`\|`null`) + `completed: bool` (`BR-004`) — mirrors `GET /questionnaire/status`'s shape, echoes each angle's label/instruction so the frontend never needs its own copy of the angle set | Yes | `BR-004` (supports the same auto-route-until-done UX as the questionnaire) |
+| `GET /photos/{id}` | Retrieve validation status/result for a specific photo; 404 generic if not found or not owned | Yes | `BR-005` |
 
-A failed validation must return which check(s) failed (per `docs/ui-ux-design.md` §3.4), and must **not** allow the analysis pipeline to be triggered from a rejected set (`BR-004`).
+**`POST /photos` always returns `200`, not 201** (a request can be a first upload or a replace) — a photo that decodes fine but fails a quality check is not an HTTP error, it's a normal response with `validation_status: "failed"`. Only a malformed *request* (unknown angle, missing/oversized/wrong-type file, undecodable image) is a real 4xx (`PHOTO_ANGLE_UNKNOWN`, `PHOTO_UPLOAD_INVALID`, both 422). Uploading once every required angle already has a passed photo returns 409 `PHOTO_SET_ALREADY_COMPLETE` (one-and-done, same posture as the questionnaire's no-resubmission rule).
+
+Response body (`PhotoOut`): `{id, angle, capture_method, validation_status: "passed"|"failed", checks: [{check, passed, reason}, ...], uploaded_at}` — `checks` always lists all six checks (not just failures), per `docs/ui-ux-design.md` §3.4's rejection-reason UI. Six checks, thresholds in `docs/security.md` §6: `file_readable`, `resolution`, `brightness`, `face_count`, `frame_proportion`, `occlusion`.
+
+A failed validation returns which check(s) failed, and `is_photo_set_ready()` (the single `BR-004` enforcement point, `Backend/app/services/photo_service.py`) must **not** allow the analysis pipeline to be triggered from a rejected set — the eventual `POST /analysis` endpoint (§6) must call this same function as its first guard clause.
+
+Supported upload file types: JPEG, PNG, HEIC. **DNG/RAW is not supported** — real RAW decoding needs `rawpy`/`libraw`, a much heavier dependency than the web-upload flow's realistic needs justify right now; flagged as an explicit follow-up, not silently dropped (see `D:\zzz\photo-upload-validation\plans.md`).
 
 ## 6. Facial Analysis
 
