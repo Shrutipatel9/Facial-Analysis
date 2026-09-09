@@ -59,10 +59,11 @@ class Settings(BaseSettings):
     email_from: str | None = Field(default=None, alias="EMAIL_FROM")
 
     # --- Photo storage (BR-005, database-design.md §2.5) ---
-    # "local" (dev default, writes to disk) or "s3". Storage mechanism was
-    # left open by the client (ASM-002) -- swappable the same way
-    # EMAIL_PROVIDER is, see app/services/photo_storage.py.
-    photo_storage_provider: str = Field(default="local", alias="PHOTO_STORAGE_PROVIDER")
+    # "database" (default, bytes live in Postgres -- see PhotoBlob), "local"
+    # (writes to disk), or "s3". Storage mechanism was left open by the
+    # client (ASM-002) -- swappable the same way EMAIL_PROVIDER is, see
+    # app/services/photo_storage.py.
+    photo_storage_provider: str = Field(default="database", alias="PHOTO_STORAGE_PROVIDER")
     photo_storage_local_dir: str = Field(default="var/photo_storage", alias="PHOTO_STORAGE_LOCAL_DIR")
     photo_max_upload_bytes: int = Field(default=15 * 1024 * 1024, alias="PHOTO_MAX_UPLOAD_BYTES")
     s3_bucket: str | None = Field(default=None, alias="S3_BUCKET")
@@ -71,6 +72,38 @@ class Settings(BaseSettings):
     s3_secret_access_key: str | None = Field(default=None, alias="S3_SECRET_ACCESS_KEY")
     # Only needed for S3-compatible non-AWS providers (R2, MinIO, Spaces).
     s3_endpoint_url: str | None = Field(default=None, alias="S3_ENDPOINT_URL")
+
+    # --- AI narrative generation (FR-007, FR-008) ---
+    # NFR-008 (client-stated) names OpenAI; the delivery team is building
+    # against DeepSeek instead (delivery-team decision, ASM-006 --
+    # client_requirements.md v1.8, flagged for client awareness, not silent).
+    # DeepSeek's hosted API is OpenAI-Chat-Completions-compatible, so this is
+    # a config-level swap (base_url/api_key/model), not a new client
+    # implementation -- switching to real OpenAI later needs no code change.
+    # ai_api_key is intentionally optional here (not validated at startup
+    # like jwt_secret/otp_pepper) -- most local dev/testing never exercises
+    # this module at all; app/services/ai_narrative_service.py raises a
+    # clear error the first time a call is actually attempted without one.
+    ai_provider: str = Field(default="deepseek", alias="AI_PROVIDER")
+    ai_api_key: str | None = Field(default=None, alias="AI_API_KEY")
+    ai_base_url: str = Field(default="https://api.deepseek.com", alias="AI_BASE_URL")
+    ai_model: str = Field(default="deepseek-v4-flash-vision-exp", alias="AI_MODEL")
+    ai_request_timeout_seconds: int = Field(default=120, alias="AI_REQUEST_TIMEOUT_SECONDS")
+
+    # --- Payment (FR-015, FR-016, BR-001) ---
+    # stripe_secret_key is intentionally optional here, same posture as
+    # ai_api_key -- most local dev/testing never exercises a real Stripe
+    # call; app/services/payment_service.py raises a clear error the first
+    # time a call is actually attempted without one.
+    stripe_secret_key: str | None = Field(default=None, alias="STRIPE_SECRET_KEY")
+    stripe_webhook_secret: str | None = Field(default=None, alias="STRIPE_WEBHOOK_SECRET")
+    # OQ-002 (report price) is explicitly kept open by the client -- this is
+    # a clearly-flagged placeholder, not a real number, and exists purely so
+    # the price is a configuration value rather than hardcoded (FR-016).
+    report_price_cents: int = Field(default=1999, alias="REPORT_PRICE_CENTS")
+    report_price_currency: str = Field(default="usd", alias="REPORT_PRICE_CURRENCY")
+    # Used to build Stripe Checkout's success_url/cancel_url redirects.
+    frontend_base_url: str = Field(default="http://localhost:3000", alias="FRONTEND_BASE_URL")
 
     @field_validator("jwt_secret", "otp_pepper")
     @classmethod

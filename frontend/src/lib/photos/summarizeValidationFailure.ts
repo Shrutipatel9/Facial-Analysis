@@ -33,6 +33,14 @@ export function summarizePhotoValidationFailure(checks: CheckResult[]): string {
     return "No face detected. Please upload a clear photo of your face."
   }
 
+  // A pose mismatch (e.g. a front-facing photo uploaded for a 3/4 angle
+  // slot) is its own distinct, actionable issue -- surface it clearly even
+  // when combined with other failures, same priority as face_count above.
+  const pose = failed.get("pose_match")
+  if (pose) {
+    return pose.reason ?? "This photo doesn't match the angle for this step. Upload a photo of the correct pose."
+  }
+
   if (primary.length === 1) {
     return friendlySingleReason(primary[0]!)
   }

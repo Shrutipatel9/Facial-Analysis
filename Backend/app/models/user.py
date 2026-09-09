@@ -28,6 +28,12 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
 
+    # Nullable at the column level only for pre-existing rows created before
+    # this field existed -- required by RegisterRequest for every new
+    # signup (FR-017 "welcome back" greeting uses this instead of an
+    # email-derived guess; see ASM-009's revision in client_requirements.md).
+    full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
     # AUTH-009: reserved for a future "admin" role (Phase 2); only "user" is
     # ever set in Phase 1.
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user", server_default="user")

@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react"
 import { CameraCapture } from "@/components/photos/CameraCapture"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import * as photoApi from "@/lib/photos/photoApi"
 import type { CaptureMethod, PhotoAngleStatus, PhotoOut } from "@/lib/photos/photoApi"
 import { summarizePhotoValidationFailure } from "@/lib/photos/summarizeValidationFailure"
 import { cn } from "@/lib/utils"
@@ -46,6 +47,8 @@ interface PhotoCaptureStepProps {
   onSelectAngle: (angleId: string) => void
   onBackToRequirements: () => void
   onSubmit: (blob: Blob, method: CaptureMethod) => Promise<PhotoOut>
+  /** Open the upload chooser even when this angle already has a passed photo (Change flow). */
+  startFresh?: boolean
 }
 
 export function PhotoCaptureStep({
@@ -54,9 +57,10 @@ export function PhotoCaptureStep({
   onSelectAngle,
   onBackToRequirements,
   onSubmit,
+  startFresh = false,
 }: PhotoCaptureStepProps) {
   const angle = angles.find((a) => a.angle === currentAngleId) ?? angles[0]!
-  const [mode, setMode] = useState<Mode>(angle.photo ? "result" : "choose")
+  const [mode, setMode] = useState<Mode>(startFresh || !angle.photo ? "choose" : "result")
   const [pendingBlob, setPendingBlob] = useState<Blob | null>(null)
   const [pendingMethod, setPendingMethod] = useState<CaptureMethod>("upload")
   /** Local blob previews keyed by angle — kept after submit so result screen can show the image. */
@@ -64,8 +68,21 @@ export function PhotoCaptureStep({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const previewByAngleRef = useRef(previewByAngle)
-  previewByAngleRef.current = previewByAngle
+  const currentAngleIdRef = useRef(currentAngleId)
   const previewUrl = previewByAngle[currentAngleId] ?? null
+
+  // Keep both refs in sync in effect bodies, not directly during render
+  // (refs are not component state, so syncing one in an effect is the
+  // idiomatic pattern -- unlike the render-time state adjustment used for
+  // pose switching further down, which deliberately needs to happen
+  // synchronously with the prop change).
+  useEffect(() => {
+    previewByAngleRef.current = previewByAngle
+  }, [previewByAngle])
+
+  useEffect(() => {
+    currentAngleIdRef.current = currentAngleId
+  }, [currentAngleId])
 
   // Revoke all object URLs on unmount.
   useEffect(() => {
@@ -76,15 +93,59 @@ export function PhotoCaptureStep({
     }
   }, [])
 
-  // Switch pose without remounting the whole layout — only reset the right pane.
-  useEffect(() => {
+  // Switch pose without remounting the whole layout — only reset the right
+  // pane. Adjusted during render (React's recommended pattern for state
+  // that must reset when a prop changes without a full remount) rather
+  // than in an effect, which would cause an extra render pass.
+  const [prevAngleId, setPrevAngleId] = useState(currentAngleId)
+  const [prevStartFresh, setPrevStartFresh] = useState(startFresh)
+  if (currentAngleId !== prevAngleId) {
+    setPrevAngleId(currentAngleId)
     setPendingBlob(null)
-    const current = angles.find((a) => a.angle === currentAngleId)
-    setMode(current?.photo ? "result" : "choose")
+    setMode(startFresh || !angle.photo ? "choose" : "result")
     setIsSubmitting(false)
-    // Only when the selected pose changes — not on every angles store update.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
-  }, [currentAngleId])
+  }
+  if (startFresh !== prevStartFresh) {
+    setPrevStartFresh(startFresh)
+    if (startFresh) {
+      setPendingBlob(null)
+      setMode("choose")
+      setIsSubmitting(false)
+    }
+  }
+
+  // Hydrate a real preview for an angle that already has an uploaded photo
+  // but no local blob: URL yet -- e.g. right after a reload, when the
+  // freshly-picked-file blob from the original upload never survived (it
+  // never left that earlier tab/page-load). Without this, the result
+  // screen below only had the pass/fail badge to show, no actual image,
+  // until the next re-upload. Lazy per angle, only when it's the one
+  // currently being viewed.
+  useEffect(() => {
+    const photo = angle.photo
+    if (!photo || previewByAngleRef.current[angle.angle]) return
+    let cancelled = false
+    photoApi
+      .getPhotoFile(photo.id)
+      .then((blob) => {
+        if (cancelled) return
+        const url = URL.createObjectURL(blob)
+        setPreviewByAngle((prev) => {
+          if (prev[angle.angle]) {
+            URL.revokeObjectURL(url)
+            return prev
+          }
+          return { ...prev, [angle.angle]: url }
+        })
+      })
+      .catch(() => {
+        // Non-fatal -- the result screen still shows pass/fail without an image.
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by id, not the whole (new-identity-per-fetch) photo object
+  }, [angle.angle, angle.photo?.id])
 
   function pickFile(blob: Blob, method: CaptureMethod) {
     setPendingBlob(blob)
@@ -119,11 +180,16 @@ export function PhotoCaptureStep({
   async function handleUseThisPhoto() {
     if (!pendingBlob) return
     setIsSubmitting(true)
+    const submittedAngleId = currentAngleId
     try {
       await onSubmit(pendingBlob, pendingMethod)
       // Keep previewByAngle so the result screen still shows the submitted image.
       setPendingBlob(null)
-      setMode("result")
+      // Parent auto-advances on pass. If we always setMode("result") here, the
+      // next pose ends up as result+no photo → blank upload UI until remount.
+      if (currentAngleIdRef.current === submittedAngleId) {
+        setMode("result")
+      }
     } finally {
       setIsSubmitting(false)
     }

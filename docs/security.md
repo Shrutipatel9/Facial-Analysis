@@ -51,7 +51,7 @@ Bearer-only APIs are not CSRF-sensitive (cross-site forms cannot set `Authorizat
 | `X-Frame-Options: DENY` | Yes | Yes |
 | `X-Content-Type-Options: nosniff` | Yes | Yes |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | Same |
-| `Permissions-Policy` | camera/mic/geo/payment disabled | Same |
+| `Permissions-Policy` | `camera=(self)` (photo-capture, `FR-005`, needs it — see `CameraCapture.tsx`); mic/geo/payment disabled | `camera=()`; mic/geo/payment disabled (the API never serves the camera-using page) |
 | `poweredByHeader` | Disabled | — |
 | OpenAPI `/docs` | — | Disabled outside development |
 
@@ -82,9 +82,11 @@ A request-level 15MB size cap (`PHOTO_MAX_UPLOAD_BYTES`) and content-type allow-
 
 | Third party | Data sent | Note |
 |---|---|---|
-| OpenAI | Facial measurements + questionnaire answers (`FR-008`) | Sensitive self-perception content — treat as sensitive in transit/at rest. |
-| Stripe | Payment details | No raw card data on our backend; use Stripe hosted/tokenized flows — **[Recommendation]**. |
+| AI provider (DeepSeek, `ASM-006`) | Facial measurements + questionnaire answers + **the three photos themselves (base64)** (`FR-008`) | **Updated (facial-analysis-engine):** the photos are sent too, not just derived measurements — multimodal, matching `FR-008`'s "not photo analysis alone" / `NFR-008`'s literal "Vision" naming. Sensitive self-perception content and biometric-adjacent photo data — treat as sensitive in transit/at rest. Vendor is DeepSeek, not the client-stated OpenAI — see `docs/database-design.md` §2.6, `docs/client_requirements.md` `ASM-006`. |
+| Stripe | Payment details | **Implemented (Phase 6, v1.11):** no raw card data ever reaches our backend or frontend — checkout redirects to Stripe's own hosted Checkout page (`checkout.Session.create(mode="payment")`), and our client sends only a `user_id` in session metadata (no `report_id` — none exists yet at payment time, see `docs/database-design.md` §2.8), never card fields. |
 | Email/OTP provider | User email, OTP code | Vendor TBD (`NFR-012`). |
+
+**Webhook signature verification (Phase 6):** `POST /payments/webhook` is deliberately unauthenticated (no `get_current_user`) — Stripe itself is the caller, not a logged-in user. Trust instead comes from verifying the `Stripe-Signature` header against the **raw** request body via `stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)`; a missing/invalid signature is rejected (400 `INVALID_WEBHOOK_SIGNATURE`) before any `Payment` row is touched. The webhook is the only trusted source of payment truth — a client-side redirect back to `success_url` is never treated as proof of payment, only as a UX cue to refetch (`ReportScreen.tsx`).
 
 ## 8. Production Deploy Checklist
 

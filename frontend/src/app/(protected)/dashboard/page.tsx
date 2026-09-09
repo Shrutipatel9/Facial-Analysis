@@ -1,12 +1,19 @@
 "use client"
 
-import { CheckCircle2, Sparkles } from "lucide-react"
 import { motion } from "motion/react"
 
-import { FacialScanVisual } from "@/components/auth/FacialScanVisual"
+import { PaymentHistoryCard } from "@/components/dashboard/PaymentHistoryCard"
+import { ProfileCard } from "@/components/dashboard/ProfileCard"
+import { ReportSummaryCard } from "@/components/dashboard/ReportSummaryCard"
 import { useAuthStore } from "@/store/authStore"
 
-function displayName(email: string | undefined): string {
+/** Prefers the account's full_name (captured at signup); falls back to an
+ * email-derived guess only for accounts created before that field existed. */
+function displayName(user: { full_name: string | null; email: string } | null | undefined): string {
+  const firstName = user?.full_name?.trim().split(/\s+/)[0]
+  if (firstName) return firstName
+
+  const email = user?.email
   if (!email) return "there"
   const local = email.split("@")[0] ?? email
   const cleaned = local.replace(/[._-]+/g, " ").trim()
@@ -15,69 +22,44 @@ function displayName(email: string | undefined): string {
 }
 
 /**
- * Post-onboarding workspace. Incomplete users are routed to /questionnaire
- * (useQuestionnaireGuard) then /photos (usePhotoUploadGuard) — this page
- * is only ever reached once both are complete.
+ * Post-onboarding workspace (FR-017) -- incomplete users are routed to
+ * /questionnaire (useQuestionnaireGuard) then /photos
+ * (usePhotoUploadGuard) then /payment (usePaymentGuard) then /analysis
+ * (useAnalysisGuard), so this page is only ever reached once all four are
+ * complete. Composes three independently-loading sections (report,
+ * payment history, profile) rather than one combined fetch -- each hits
+ * its own already-existing endpoint (GET /reports, GET /payments, GET
+ * /users/me), so one slow/failed section never blocks the others.
  */
 export default function DashboardPage() {
   const user = useAuthStore((state) => state.user)
 
   return (
-    <section className="grid min-h-full flex-1 lg:grid-cols-[0.95fr_1.05fr]">
-      <div className="relative flex min-h-[40vh] flex-col items-center justify-center gap-6 px-6 py-10 lg:min-h-0 lg:px-10">
-        <motion.div
-          className="absolute inset-[12%] rounded-full bg-primary/[0.06] blur-3xl"
-          animate={{ scale: [1, 1.06, 1], opacity: [0.5, 0.85, 0.5] }}
-          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-        />
-        <motion.div
-          initial={{ opacity: 0, scale: 0.96 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.55, ease: "easeOut" }}
-          className="relative"
-        >
-          <FacialScanVisual className="h-[min(48vh,340px)] w-auto" tone="onLight" />
-        </motion.div>
-        <p className="relative text-center text-xs font-medium tracking-[0.22em] text-primary/55 uppercase">
-          Facial analysis ready
-        </p>
-      </div>
+    <div className="w-full">
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="mb-8 space-y-1"
+      >
+        <h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
+          Welcome back, {displayName(user)}
+        </h1>
+        <p className="text-sm text-muted-foreground">Your reports, payments, and account, all in one place.</p>
+      </motion.div>
 
-      <div className="flex items-center px-5 pb-10 sm:px-8 lg:px-10 lg:py-10">
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
-          className="w-full max-w-md space-y-6 rounded-2xl border border-border bg-card p-8 sm:p-10"
-        >
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/12 bg-primary/[0.06] px-3 py-1 text-xs font-medium text-primary">
-            <Sparkles className="size-3.5" />
-            Your workspace
-          </div>
-
-          <div className="space-y-3">
-            <h1 className="font-heading text-3xl font-semibold tracking-tight text-balance sm:text-[2.35rem] sm:leading-tight">
-              Welcome back, {displayName(user?.email)}
-            </h1>
-            <p className="text-[15px] leading-relaxed text-muted-foreground text-pretty">
-              Your questionnaire answers and photos are ready to contextualize the AI narrative once
-              analysis goes live.
-            </p>
-          </div>
-
-          <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-4">
-            <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <CheckCircle2 className="size-4" />
-            </span>
-            <div>
-              <p className="text-sm font-medium">Onboarding complete</p>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                You&apos;re ready for the next modules when they ship.
-              </p>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-    </section>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45, ease: "easeOut", delay: 0.05 }}
+        className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]"
+      >
+        <div className="flex flex-col gap-5">
+          <ReportSummaryCard />
+          <PaymentHistoryCard />
+        </div>
+        <ProfileCard />
+      </motion.div>
+    </div>
   )
 }

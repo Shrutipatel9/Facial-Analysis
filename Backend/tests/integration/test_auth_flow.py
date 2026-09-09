@@ -43,7 +43,9 @@ async def _register_and_verify(client: AsyncClient, email_sender, email: str) ->
     "refresh_token")` right after this call, before any further request
     through the client rotates it.
     """
-    resp = await client.post("/auth/register", json={"email": email, "password": "correcthorse9"})
+    resp = await client.post(
+        "/auth/register", json={"email": email, "password": "correcthorse9", "full_name": "Test User"}
+    )
     assert resp.status_code == 201, resp.text
     challenge_id = resp.json()["challenge_id"]
     otp = email_sender.sent[email]
@@ -122,7 +124,8 @@ class TestRegistrationEdgeCases:
     async def test_duplicate_signup_on_verified_email_is_409(self, client: AsyncClient, email_sender):
         await _register_and_verify(client, email_sender, "verified@example.com")
         resp = await client.post(
-            "/auth/register", json={"email": "verified@example.com", "password": "correcthorse9"}
+            "/auth/register",
+            json={"email": "verified@example.com", "password": "correcthorse9", "full_name": "Test User"},
         )
         assert resp.status_code == 409
         assert resp.json()["error"]["code"] == "EMAIL_ALREADY_REGISTERED"
@@ -131,12 +134,14 @@ class TestRegistrationEdgeCases:
         self, client: AsyncClient, email_sender
     ):
         resp1 = await client.post(
-            "/auth/register", json={"email": "duplicate-fast@example.com", "password": "correcthorse9"}
+            "/auth/register",
+            json={"email": "duplicate-fast@example.com", "password": "correcthorse9", "full_name": "Test User"},
         )
         assert resp1.status_code == 201
 
         resp2 = await client.post(
-            "/auth/register", json={"email": "duplicate-fast@example.com", "password": "anotherpass9"}
+            "/auth/register",
+            json={"email": "duplicate-fast@example.com", "password": "anotherpass9", "full_name": "Test User"},
         )
         assert resp2.status_code == 429
         assert resp2.json()["error"]["code"] == "OTP_COOLDOWN"
@@ -145,14 +150,16 @@ class TestRegistrationEdgeCases:
         self, client: AsyncClient, email_sender
     ):
         resp1 = await client.post(
-            "/auth/register", json={"email": "pending@example.com", "password": "correcthorse9"}
+            "/auth/register",
+            json={"email": "pending@example.com", "password": "correcthorse9", "full_name": "Test User"},
         )
         assert resp1.status_code == 201
         await _expire_cooldown_for("pending@example.com")
 
         # Second attempt with a DIFFERENT password, once the cooldown has passed.
         resp2 = await client.post(
-            "/auth/register", json={"email": "pending@example.com", "password": "anotherpass9"}
+            "/auth/register",
+            json={"email": "pending@example.com", "password": "anotherpass9", "full_name": "Test User"},
         )
         assert resp2.status_code == 201
         assert resp2.json()["challenge_id"] != resp1.json()["challenge_id"]
@@ -166,7 +173,8 @@ class TestRegistrationEdgeCases:
 
     async def test_login_on_unverified_account_routes_to_signup_purpose(self, client: AsyncClient, email_sender):
         resp = await client.post(
-            "/auth/register", json={"email": "half-signed-up@example.com", "password": "correcthorse9"}
+            "/auth/register",
+            json={"email": "half-signed-up@example.com", "password": "correcthorse9", "full_name": "Test User"},
         )
         assert resp.status_code == 201
         await _expire_cooldown_for("half-signed-up@example.com")
@@ -178,7 +186,9 @@ class TestRegistrationEdgeCases:
         assert resp.json()["purpose"] == "signup"
 
     async def test_weak_password_rejected_at_schema_layer(self, client: AsyncClient):
-        resp = await client.post("/auth/register", json={"email": "weak@example.com", "password": "abc"})
+        resp = await client.post(
+            "/auth/register", json={"email": "weak@example.com", "password": "abc", "full_name": "Test User"}
+        )
         assert resp.status_code == 422
 
 
@@ -205,7 +215,10 @@ class TestOTPVerification:
     async def test_wrong_otp_increments_attempts_without_locking_before_the_fifth(
         self, client: AsyncClient, email_sender
     ):
-        resp = await client.post("/auth/register", json={"email": "wrongotp@example.com", "password": "correcthorse9"})
+        resp = await client.post(
+            "/auth/register",
+            json={"email": "wrongotp@example.com", "password": "correcthorse9", "full_name": "Test User"},
+        )
         challenge_id = resp.json()["challenge_id"]
 
         for _ in range(4):
@@ -222,7 +235,10 @@ class TestOTPVerification:
     async def test_fifth_wrong_attempt_locks_and_blocks_subsequent_correct_attempts(
         self, client: AsyncClient, email_sender
     ):
-        resp = await client.post("/auth/register", json={"email": "lockme@example.com", "password": "correcthorse9"})
+        resp = await client.post(
+            "/auth/register",
+            json={"email": "lockme@example.com", "password": "correcthorse9", "full_name": "Test User"},
+        )
         challenge_id = resp.json()["challenge_id"]
 
         for _ in range(5):
@@ -241,7 +257,10 @@ class TestOTPVerification:
     async def test_expired_otp_is_rejected_without_counting_as_an_attempt(
         self, client: AsyncClient, email_sender, db
     ):
-        resp = await client.post("/auth/register", json={"email": "expiring@example.com", "password": "correcthorse9"})
+        resp = await client.post(
+            "/auth/register",
+            json={"email": "expiring@example.com", "password": "correcthorse9", "full_name": "Test User"},
+        )
         challenge_id = resp.json()["challenge_id"]
 
         # Force expiry deterministically rather than sleeping in the test.
@@ -273,7 +292,10 @@ class TestOTPVerification:
 
 class TestOTPResend:
     async def test_resend_before_cooldown_is_429(self, client: AsyncClient, email_sender):
-        resp = await client.post("/auth/register", json={"email": "cooldown@example.com", "password": "correcthorse9"})
+        resp = await client.post(
+            "/auth/register",
+            json={"email": "cooldown@example.com", "password": "correcthorse9", "full_name": "Test User"},
+        )
         challenge_id = resp.json()["challenge_id"]
 
         resp = await client.post("/auth/otp/resend", json={"challenge_id": challenge_id})
@@ -282,7 +304,10 @@ class TestOTPResend:
         assert resp.json()["error"]["retry_after_seconds"] > 0
 
     async def test_resend_after_cooldown_supersedes_old_challenge(self, client: AsyncClient, email_sender, db):
-        resp = await client.post("/auth/register", json={"email": "resend@example.com", "password": "correcthorse9"})
+        resp = await client.post(
+            "/auth/register",
+            json={"email": "resend@example.com", "password": "correcthorse9", "full_name": "Test User"},
+        )
         old_challenge_id = resp.json()["challenge_id"]
 
         # Force the cooldown to have already elapsed.
@@ -758,3 +783,96 @@ class TestForgotPassword:
         )
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "WEAK_PASSWORD"
+
+
+class TestFullNameAtRegistration:
+    async def test_full_name_is_required(self, client: AsyncClient):
+        resp = await client.post(
+            "/auth/register", json={"email": "noname@example.com", "password": "correcthorse9"}
+        )
+        assert resp.status_code == 422
+
+    async def test_blank_full_name_is_rejected(self, client: AsyncClient):
+        resp = await client.post(
+            "/auth/register",
+            json={"email": "blankname@example.com", "password": "correcthorse9", "full_name": "   "},
+        )
+        assert resp.status_code == 422
+
+    async def test_full_name_is_persisted_and_returned(self, client: AsyncClient, email_sender):
+        resp = await client.post(
+            "/auth/register",
+            json={"email": "namedperson@example.com", "password": "correcthorse9", "full_name": "  Ada Lovelace  "},
+        )
+        assert resp.status_code == 201
+        challenge_id = resp.json()["challenge_id"]
+        otp = email_sender.sent["namedperson@example.com"]
+
+        verify_resp = await client.post("/auth/otp/verify", json={"challenge_id": challenge_id, "otp": otp})
+        assert verify_resp.json()["user"]["full_name"] == "Ada Lovelace"  # trimmed
+
+
+class TestChangePassword:
+    async def _headers(self, client: AsyncClient, email_sender, email: str) -> dict:
+        tokens = await _register_and_verify(client, email_sender, email)
+        return {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    async def test_changes_password_and_keeps_the_session_active(self, client: AsyncClient, email_sender):
+        headers = await self._headers(client, email_sender, "changepass@example.com")
+
+        resp = await client.post(
+            "/auth/change-password",
+            json={"current_password": "correcthorse9", "new_password": "newpassword9"},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+
+        # The old access token is still valid -- no sign-out (unlike
+        # reset-password's session revocation).
+        me_resp = await client.get("/auth/me", headers=headers)
+        assert me_resp.status_code == 200
+
+        # New password actually works for a fresh login.
+        login_resp = await client.post(
+            "/auth/login", json={"email": "changepass@example.com", "password": "newpassword9"}
+        )
+        assert login_resp.status_code == 200
+
+    async def test_wrong_current_password_is_rejected(self, client: AsyncClient, email_sender):
+        headers = await self._headers(client, email_sender, "changepass-wrong@example.com")
+
+        resp = await client.post(
+            "/auth/change-password",
+            json={"current_password": "not-the-real-password", "new_password": "newpassword9"},
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"]["code"] == "CURRENT_PASSWORD_INCORRECT"
+
+    async def test_new_password_same_as_current_is_rejected(self, client: AsyncClient, email_sender):
+        headers = await self._headers(client, email_sender, "changepass-same@example.com")
+
+        resp = await client.post(
+            "/auth/change-password",
+            json={"current_password": "correcthorse9", "new_password": "correcthorse9"},
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"]["code"] == "SAME_PASSWORD"
+
+    async def test_weak_new_password_rejected_at_schema_layer(self, client: AsyncClient, email_sender):
+        headers = await self._headers(client, email_sender, "changepass-weak@example.com")
+
+        resp = await client.post(
+            "/auth/change-password",
+            json={"current_password": "correcthorse9", "new_password": "abc"},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    async def test_unauthenticated_is_401(self, client: AsyncClient):
+        resp = await client.post(
+            "/auth/change-password",
+            json={"current_password": "correcthorse9", "new_password": "newpassword9"},
+        )
+        assert resp.status_code == 401

@@ -25,8 +25,15 @@ export const passwordSchema = z
   .refine((value) => /[A-Za-z]/.test(value), "Password must contain at least one letter.")
   .refine((value) => /\d/.test(value), "Password must contain at least one number.")
 
+export const fullNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Enter your full name.")
+  .max(120, "Full name must be at most 120 characters.")
+
 export const signupSchema = z
   .object({
+    fullName: fullNameSchema,
     email: emailSchema,
     password: passwordSchema,
   })
@@ -80,6 +87,19 @@ export const newPasswordSchema = z
 
 export type NewPasswordFormValues = z.infer<typeof newPasswordSchema>
 
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Enter your current password."),
+    newPassword: passwordSchema,
+    confirmPassword: z.string().min(1, "Re-enter your new password."),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Passwords do not match.",
+    path: ["confirmPassword"],
+  })
+
+export type ChangePasswordFormValues = z.infer<typeof changePasswordSchema>
+
 /** Scores 0-4, mirroring the backend's rules only (length, letter, digit) --
  * plus a couple of UX-only bonus signals (mixed case, symbol) that the
  * backend doesn't require but that make the meter feel less binary. */
@@ -97,15 +117,29 @@ export function scorePasswordStrength(password: string): 0 | 1 | 2 | 3 | 4 {
  * mirrors the backend's per-question required/type/options validation
  * (Backend/app/services/questionnaire_service.py's _validate_and_clean),
  * client-side only; the backend re-validates and is the actual source of
- * truth (BR-003 in particular must never be trusted client-side alone). */
+ * truth (BR-003 in particular must never be trusted client-side alone).
+ *
+ * Required fields are typed `.optional()` at the base (accepting the
+ * `undefined` an unanswered question actually holds in the store) and
+ * enforced via `.refine()` instead of `.min()`/base-type checks -- Zod's
+ * own base-type failure message ("Invalid input: expected string, received
+ * undefined") would otherwise leak straight to the user instead of the
+ * human-readable required-field message below. */
 export function answerSchemaFor(question: Question) {
   if (question.type === "multi_select") {
     return question.required
-      ? z.array(z.string()).min(1, "Select at least one option.")
-      : z.array(z.string())
+      ? z
+          .array(z.string())
+          .optional()
+          .refine((value) => !!value && value.length > 0, "Select at least one option.")
+      : z.array(z.string()).optional()
   }
   return question.required
-    ? z.string().trim().min(1, "This field is required.")
+    ? z
+        .string()
+        .optional()
+        .transform((value) => value?.trim() ?? "")
+        .refine((value) => value.length > 0, "This field is required.")
     : z.string().trim().optional()
 }
 

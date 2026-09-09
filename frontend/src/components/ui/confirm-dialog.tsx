@@ -87,7 +87,7 @@ export function ConfirmDialog({
   return (
     <AlertDialog open={open} onOpenChange={(next) => !isPending && setOpen(next)}>
       {trigger ? <AlertDialogTrigger render={trigger} /> : null}
-      <AlertDialogContent size="sm" className="gap-0 overflow-hidden p-0 sm:max-w-[22rem]">
+      <AlertDialogContent size="sm" className="gap-0 overflow-hidden p-0 sm:max-w-[24rem]">
         <div className="flex flex-col items-center gap-4 px-6 pt-7 pb-5 text-center">
           <AlertDialogMedia className={cn("mb-0 size-12 rounded-full shadow-none ring-0", styles.iconWrap)}>
             <Icon className="size-5" aria-hidden />
@@ -102,13 +102,13 @@ export function ConfirmDialog({
           </AlertDialogHeader>
         </div>
         <AlertDialogFooter className="mx-0 mb-0 grid grid-cols-2 gap-3 rounded-none border-t border-border bg-transparent p-4">
-          <AlertDialogCancel disabled={isPending} className="w-full">
+          <AlertDialogCancel disabled={isPending} className="h-11 w-full rounded-full px-5">
             {cancelLabel}
           </AlertDialogCancel>
           <AlertDialogAction
             variant={variant === "destructive" ? "destructive" : "default"}
             disabled={isPending}
-            className="w-full"
+            className="h-11 w-full rounded-full px-5"
             onClick={handleConfirm}
           >
             {isPending ? <Loader2 className="size-4 animate-spin" /> : null}

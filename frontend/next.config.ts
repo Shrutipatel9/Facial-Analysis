@@ -44,8 +44,14 @@ const nextConfig: NextConfig = {
       { key: "X-Frame-Options", value: "DENY" },
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
       {
+        // camera=(self): the photo-capture flow uses getUserMedia() on this
+        // origin (CameraCapture.tsx) -- an empty allowlist blocks that at
+        // the document level even after the browser's own per-site camera
+        // permission is granted, since Permissions-Policy is enforced
+        // before that browser prompt/setting is consulted. Third-party
+        // (embedded) origins still get no camera access either way.
         key: "Permissions-Policy",
-        value: "camera=(), microphone=(), geolocation=(), payment=()",
+        value: "camera=(self), microphone=(), geolocation=(), payment=()",
       },
       { key: "X-XSS-Protection", value: "0" },
       { key: "Content-Security-Policy", value: contentSecurityPolicy },

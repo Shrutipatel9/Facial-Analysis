@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
     "mediapipe>=1.0.1",
+    "openai>=3.8.0",
     "opencv-python-headless>=5.0.0.93",
     "pillow>=12.3.0",
     "pillow-heif>=1.7.0",
@@ -19,8 +20,10 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "pyjwt>=2.13.0",
     "python-multipart>=0.0.32",
+    "reportlab>=5.0.1",
     "slowapi>=0.1.10",
     "sqlalchemy[asyncio]>=2.0.52",
+    "stripe>=15.6.1",
     "uvicorn>=0.52.4",
 ]
 
@@ -56,6 +59,7 @@ ignore = ["B008"]
 [[tool.mypy.overrides]]
 # Neither ships a py.typed marker/stubs. boto3 is only imported lazily
 # inside S3PhotoStorage (see photo_storage.py) -- local-provider
-# deployments never need it installed at all.
-module = ["mediapipe.*", "boto3.*"]
+# deployments never need it installed at all. reportlab ships no
+# py.typed marker either (types-reportlab exists but lags releases).
+module = ["mediapipe.*", "boto3.*", "reportlab.*"]
 ignore_missing_imports = true

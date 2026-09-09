@@ -19,6 +19,18 @@ def _load(name: str) -> bytes:
     return (FIXTURES_DIR / name).read_bytes()
 
 
+# Angle-appropriate fixtures for the pose_match check -- pass_all.jpg is a
+# genuinely frontal photo; pass_right_3q.jpg/pass_left_3q.jpg are
+# synthesized (asymmetric horizontal compression) from it to plausibly
+# shift the nose/eye symmetry the way an actual 3/4 turn does. See
+# photo_validation_service.py's estimate_yaw_ratio/classify_pose.
+_FIXTURE_FOR_ANGLE = {
+    "front": "pass_all.jpg",
+    "right_3q": "pass_right_3q.jpg",
+    "left_3q": "pass_left_3q.jpg",
+}
+
+
 async def _auth_headers(client: AsyncClient, email_sender, email: str) -> dict:
     tokens = await _register_and_verify(client, email_sender, email)
     return {"Authorization": f"Bearer {tokens['access_token']}"}
@@ -99,6 +111,47 @@ class TestUploadPhoto:
         check = next(c for c in body["checks"] if c["check"] == "frame_proportion")
         assert check["passed"] is False
 
+    async def test_pose_match_fails_front_photo_uploaded_as_side_angle(
+        self, client: AsyncClient, email_sender
+    ):
+        """The literal bug this check exists for: a clearly frontal photo
+        uploaded for a 3/4-turn angle slot must be rejected, not silently
+        accepted as if it showed that angle."""
+        headers = await _auth_headers(client, email_sender, "photo-pose-frontforside@example.com")
+        resp = await _upload(client, headers, "right_3q", "pass_all.jpg")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["validation_status"] == "failed"
+        check = next(c for c in body["checks"] if c["check"] == "pose_match")
+        assert check["passed"] is False
+        assert "right side" in check["reason"].lower()
+
+    async def test_pose_match_fails_side_photo_uploaded_as_front_angle(
+        self, client: AsyncClient, email_sender
+    ):
+        headers = await _auth_headers(client, email_sender, "photo-pose-sideforfront@example.com")
+        resp = await _upload(client, headers, "front", "pass_right_3q.jpg")
+        body = resp.json()
+        assert body["validation_status"] == "failed"
+        check = next(c for c in body["checks"] if c["check"] == "pose_match")
+        assert check["passed"] is False
+
+    async def test_pose_match_fails_left_and_right_swapped(self, client: AsyncClient, email_sender):
+        headers = await _auth_headers(client, email_sender, "photo-pose-swapped@example.com")
+        resp = await _upload(client, headers, "left_3q", "pass_right_3q.jpg")
+        body = resp.json()
+        assert body["validation_status"] == "failed"
+        check = next(c for c in body["checks"] if c["check"] == "pose_match")
+        assert check["passed"] is False
+
+    async def test_pose_match_passes_when_angle_and_pose_agree(self, client: AsyncClient, email_sender):
+        headers = await _auth_headers(client, email_sender, "photo-pose-agree@example.com")
+        for angle_id, fixture in _FIXTURE_FOR_ANGLE.items():
+            resp = await _upload(client, headers, angle_id, fixture)
+            body = resp.json()
+            check = next(c for c in body["checks"] if c["check"] == "pose_match")
+            assert check["passed"] is True, f"{angle_id} unexpectedly failed pose_match: {check}"
+
     async def test_full_pass_marks_validation_status_passed(self, client: AsyncClient, email_sender):
         headers = await _auth_headers(client, email_sender, "photo-pass@example.com")
         resp = await _upload(client, headers, "front", "pass_all.jpg")
@@ -113,6 +166,7 @@ class TestUploadPhoto:
             "face_count",
             "frame_proportion",
             "occlusion",
+            "pose_match",
         }
         assert body["angle"] == "front"
         assert body["capture_method"] == "upload"
@@ -142,7 +196,7 @@ class TestPhotoStatusAndCompletion:
         assert all(a["photo"] is None for a in body["angles"])
 
         for angle in REQUIRED_ANGLES:
-            resp = await _upload(client, headers, angle.id, "pass_all.jpg")
+            resp = await _upload(client, headers, angle.id, _FIXTURE_FOR_ANGLE[angle.id])
             assert resp.status_code == 200, resp.text
             assert resp.json()["validation_status"] == "passed"
 
@@ -161,15 +215,44 @@ class TestPhotoStatusAndCompletion:
         await _upload(client, headers, "front", "pass_all.jpg")
         assert await is_photo_set_ready(db, user_id) is False
 
-        await _upload(client, headers, "left_3q", "pass_all.jpg")
-        await _upload(client, headers, "right_3q", "pass_all.jpg")
+        await _upload(client, headers, "left_3q", "pass_left_3q.jpg")
+        await _upload(client, headers, "right_3q", "pass_right_3q.jpg")
         assert await is_photo_set_ready(db, user_id) is True
 
-    async def test_upload_after_set_complete_is_conflict(self, client: AsyncClient, email_sender):
-        headers = await _auth_headers(client, email_sender, "photo-complete@example.com")
+    async def test_replace_after_set_complete_is_allowed_before_payment(
+        self, client: AsyncClient, email_sender
+    ):
+        """Review-screen Change flow: replace an angle after all three pass,
+        as long as the user has not paid yet."""
+        headers = await _auth_headers(client, email_sender, "photo-replace@example.com")
         for angle in REQUIRED_ANGLES:
-            resp = await _upload(client, headers, angle.id, "pass_all.jpg")
+            resp = await _upload(client, headers, angle.id, _FIXTURE_FOR_ANGLE[angle.id])
             assert resp.status_code == 200, resp.text
+
+        resp = await _upload(client, headers, "front", "pass_all.jpg")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+
+    async def test_upload_after_payment_is_conflict(self, client: AsyncClient, email_sender, db):
+        headers = await _auth_headers(client, email_sender, "photo-locked@example.com")
+        for angle in REQUIRED_ANGLES:
+            resp = await _upload(client, headers, angle.id, _FIXTURE_FOR_ANGLE[angle.id])
+            assert resp.status_code == 200, resp.text
+
+        me = await client.get("/auth/me", headers=headers)
+        user_id = uuid.UUID(me.json()["id"])
+        from app.models.payment import Payment
+
+        db.add(
+            Payment(
+                user_id=user_id,
+                stripe_session_id="cs_test_lock_photos",
+                amount_cents=1999,
+                currency="usd",
+                status="succeeded",
+            )
+        )
+        await db.commit()
 
         resp = await _upload(client, headers, "front", "pass_all.jpg")
         assert resp.status_code == 409
@@ -204,3 +287,48 @@ class TestGetPhoto:
         headers_b = await _auth_headers(client, email_sender, "photo-owner-b@example.com")
         resp = await client.get(f"/photos/{photo_id}", headers=headers_b)
         assert resp.status_code == 404
+
+
+class TestGetPhotoFile:
+    """The actual stored bytes -- lets the frontend show a persistent
+    preview after a reload instead of only an ephemeral blob: URL."""
+
+    async def test_requires_authentication(self, client: AsyncClient):
+        resp = await client.get(f"/photos/{uuid.uuid4()}/file")
+        assert resp.status_code == 401
+
+    async def test_returns_the_exact_uploaded_bytes(self, client: AsyncClient, email_sender):
+        headers = await _auth_headers(client, email_sender, "photo-file@example.com")
+        uploaded = await _upload(client, headers, "front", "pass_all.jpg")
+        photo_id = uploaded.json()["id"]
+
+        resp = await client.get(f"/photos/{photo_id}/file", headers=headers)
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/jpeg"
+        assert resp.content == _load("pass_all.jpg")
+
+    async def test_unknown_id_is_generic_404(self, client: AsyncClient, email_sender):
+        headers = await _auth_headers(client, email_sender, "photo-file-404@example.com")
+        resp = await client.get(f"/photos/{uuid.uuid4()}/file", headers=headers)
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "PHOTO_NOT_FOUND"
+
+    async def test_other_users_photo_file_is_generic_404(self, client: AsyncClient, email_sender):
+        headers_a = await _auth_headers(client, email_sender, "photo-file-owner-a@example.com")
+        uploaded = await _upload(client, headers_a, "front", "pass_all.jpg")
+        photo_id = uploaded.json()["id"]
+
+        headers_b = await _auth_headers(client, email_sender, "photo-file-owner-b@example.com")
+        resp = await client.get(f"/photos/{photo_id}/file", headers=headers_b)
+        assert resp.status_code == 404
+
+    async def test_retry_replaces_the_served_bytes(self, client: AsyncClient, email_sender):
+        headers = await _auth_headers(client, email_sender, "photo-file-retry@example.com")
+        first = await _upload(client, headers, "front", "too_small.jpg")
+        photo_id = first.json()["id"]
+
+        second = await _upload(client, headers, "front", "pass_all.jpg")
+        assert second.json()["id"] == photo_id
+
+        resp = await client.get(f"/photos/{photo_id}/file", headers=headers)
+        assert resp.content == _load("pass_all.jpg")

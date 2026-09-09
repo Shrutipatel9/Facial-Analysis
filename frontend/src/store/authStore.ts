@@ -3,6 +3,8 @@ import { create } from "zustand"
 export interface AuthUser {
   id: string
   email: string
+  // Nullable only for accounts created before this field existed.
+  full_name: string | null
   role: string
   verification_status: "pending" | "verified"
 }

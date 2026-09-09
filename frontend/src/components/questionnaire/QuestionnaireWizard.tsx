@@ -11,10 +11,14 @@ import { DisclaimerStep } from "@/components/questionnaire/DisclaimerStep"
 import { QuestionStep } from "@/components/questionnaire/QuestionStep"
 import { Button } from "@/components/ui/button"
 import { getErrorMessage } from "@/lib/api/getErrorMessage"
+import { getNextOnboardingStep } from "@/lib/onboarding/nextStep"
 import { isVisible } from "@/lib/questionnaire/isVisible"
 import * as questionnaireApi from "@/lib/questionnaire/questionnaireApi"
 import type { AnswerValue, Question } from "@/lib/questionnaire/questionnaireApi"
 import { answerSchemaFor, disclaimerSchema } from "@/lib/validation"
+import { useAnalysisStore } from "@/store/analysisStore"
+import { usePaymentStore } from "@/store/paymentStore"
+import { usePhotoStore } from "@/store/photoStore"
 import { useQuestionnaireStore } from "@/store/questionnaireStore"
 
 const DISCLAIMER_STEP_ID = "disclaimer"
@@ -39,6 +43,9 @@ export function QuestionnaireWizard() {
   const setDisclaimerAccepted = useQuestionnaireStore((state) => state.setDisclaimerAccepted)
   const setCompleted = useQuestionnaireStore((state) => state.setCompleted)
   const reset = useQuestionnaireStore((state) => state.reset)
+  const photosCompleted = usePhotoStore((state) => state.completed)
+  const paymentStatus = usePaymentStore((state) => state.status)
+  const analysisStatus = useAnalysisStore((state) => state.status)
 
   useEffect(() => {
     questionnaireApi
@@ -62,6 +69,22 @@ export function QuestionnaireWizard() {
     return (
       <div className="flex flex-1 items-center justify-center py-16">
         <Loader2 className="size-7 animate-spin text-primary/50" aria-label="Loading" />
+      </div>
+    )
+  }
+
+  // Once submission starts, render a dedicated loading state for the rest of
+  // this component's lifetime instead of the wizard body. `handleSubmit`
+  // calls `reset()` (clears answers/currentQuestionId) before `router.replace`
+  // resolves -- client-side navigation doesn't unmount this component
+  // synchronously, so without this guard the wizard would briefly re-render
+  // showing Q1 (currentQuestionId falls back to stepIds[0]) before the route
+  // actually changes. This makes that flicker structurally impossible.
+  if (isSubmitting) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 py-16 text-center">
+        <Loader2 className="size-8 animate-spin text-primary" aria-hidden />
+        <p className="text-base text-muted-foreground">Submitting your answers…</p>
       </div>
     )
   }
@@ -135,7 +158,22 @@ export function QuestionnaireWizard() {
       setCompleted(true)
       toast.success("Questionnaire submitted.")
       reset()
-      router.replace("/dashboard")
+      // Navigate straight to the actual next step -- never relay through
+      // /dashboard. By this point the photo/analysis guards have almost
+      // certainly already resolved their own status fetches in the
+      // background (they were enabled the moment this guard cleared, back
+      // when this page first mounted), so routing through /dashboard would
+      // render its real "you're all set" content for one frame before
+      // useOnboardingEntryGuard yanks it away again. See
+      // lib/onboarding/nextStep.ts.
+      router.replace(
+        getNextOnboardingStep({
+          questionnaireCompleted: true,
+          photosCompleted: photosCompleted ?? false,
+          paymentSucceeded: paymentStatus === "succeeded",
+          analysisStatus: analysisStatus ?? "none",
+        })
+      )
     } catch (err) {
       toast.error(getErrorMessage(err))
       setIsSubmitting(false)
@@ -158,7 +196,7 @@ export function QuestionnaireWizard() {
           transition={{ duration: 0.35 }}
           className="relative"
         >
-          <FacialScanVisual className="h-[min(46vh,320px)] w-auto" tone="onLight" />
+          <FacialScanVisual className="h-[min(56vh,400px)] w-auto" tone="onLight" />
         </motion.div>
 
         <div className="relative space-y-2 text-center">
@@ -217,7 +255,6 @@ export function QuestionnaireWizard() {
                     accepted={disclaimerAccepted}
                     onAcceptedChange={setDisclaimerAccepted}
                     error={disclaimerError}
-                    isSubmitting={isSubmitting}
                   />
                 ) : currentQuestion ? (
                   <QuestionStep
@@ -253,7 +290,7 @@ export function QuestionnaireWizard() {
                 variant="outline"
                 className="h-11 w-28 shrink-0 rounded-full border-border sm:w-32"
                 onClick={handleBack}
-                disabled={currentIndex === 0 || isSubmitting}
+                disabled={currentIndex === 0}
               >
                 Back
               </Button>
@@ -261,10 +298,9 @@ export function QuestionnaireWizard() {
                 <Button
                   type="button"
                   className="h-11 w-36 shrink-0 rounded-full sm:w-40"
-                  disabled={!disclaimerAccepted || isSubmitting}
+                  disabled={!disclaimerAccepted}
                   onClick={handleSubmit}
                 >
-                  {isSubmitting ? <Loader2 className="animate-spin" /> : null}
                   Submit
                 </Button>
               ) : (

@@ -10,18 +10,17 @@ existing, and use the email_sender fixture below to intercept sends anyway.
 """
 
 import os
-import tempfile
 
 os.environ["DATABASE_URL"] = "postgresql+asyncpg://facial_analysis:facial_analysis@localhost:5433/facial_analysis_test"
 os.environ["EMAIL_PROVIDER"] = "console"
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:3000")
-# Absolute path, not the dev var/photo_storage/ dir -- keeps test-uploaded
-# files out of the real dev storage dir regardless of the developer's
-# local .env (same "regardless of local .env" posture as EMAIL_PROVIDER
-# above). A fresh temp dir per test process; never cleaned up explicitly,
-# same as any other pytest tmp usage -- the OS reclaims it eventually.
-os.environ["PHOTO_STORAGE_PROVIDER"] = "local"
-os.environ["PHOTO_STORAGE_LOCAL_DIR"] = tempfile.mkdtemp(prefix="facial_analysis_test_photos_")
+# Regardless of the developer's local .env (same posture as EMAIL_PROVIDER
+# above) -- "database" is also the real default now, so tests exercise the
+# actual DatabasePhotoStorage implementation, not a dev-only local-disk
+# stand-in. No filesystem isolation needed: it's already isolated by the
+# dedicated test database, and _clean_tables below wipes photo_blobs like
+# every other table.
+os.environ["PHOTO_STORAGE_PROVIDER"] = "database"
 
 import pytest
 import pytest_asyncio

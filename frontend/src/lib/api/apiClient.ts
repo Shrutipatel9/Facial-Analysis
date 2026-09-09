@@ -4,6 +4,7 @@
  */
 
 export {
+  authenticatedBlobRequest,
   authenticatedFormRequest,
   authenticatedRequest,
   checkBackendHealth,

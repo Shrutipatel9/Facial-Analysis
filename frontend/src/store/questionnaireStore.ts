@@ -28,7 +28,10 @@ interface QuestionnaireState {
   goTo: (id: string) => void
   setDisclaimerAccepted: (value: boolean) => void
   setCompleted: (value: boolean) => void
+  /** Clears in-progress wizard fields only — keeps `completed` (post-submit). */
   reset: () => void
+  /** Full wipe for logout / account switch — including `completed` and localStorage. */
+  clearForNewSession: () => void
 }
 
 const initialState = {
@@ -60,6 +63,12 @@ export const useQuestionnaireStore = create<QuestionnaireState>()(
       // setCompleted(true) itself). Resetting it here would race that call
       // and could leave the guard stuck showing its loading state.
       reset: () => set({ answers: {}, currentQuestionId: null, disclaimerAccepted: false }),
+
+      clearForNewSession: () => {
+        set({ ...initialState })
+        // Drop persisted answers so the next account doesn't inherit them.
+        useQuestionnaireStore.persist.clearStorage()
+      },
     }),
     {
       name: "questionnaire-progress",

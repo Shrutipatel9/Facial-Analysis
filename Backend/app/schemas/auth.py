@@ -1,7 +1,7 @@
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from app.services.password_service import validate_password_strength
 
@@ -11,6 +11,18 @@ Purpose = Literal["signup", "login"]
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=256)
+    full_name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("full_name")
+    @classmethod
+    def _strip_full_name(cls, value: str) -> str:
+        # Runs before min_length is enforced against the trimmed value, so
+        # whitespace-only input (e.g. "   ") is rejected rather than
+        # silently accepted then stored empty.
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Full name cannot be blank.")
+        return stripped
 
     @model_validator(mode="after")
     def _check_password_strength(self) -> "RegisterRequest":
@@ -95,10 +107,34 @@ class ForgotPasswordResponse(BaseModel):
 class UserOut(BaseModel):
     id: uuid.UUID
     email: str
+    # Nullable only for accounts created before this field existed --
+    # every new signup always provides one (RegisterRequest.full_name).
+    full_name: str | None
     role: str
     verification_status: str
 
     model_config = {"from_attributes": True}
+
+
+class ChangePasswordRequest(BaseModel):
+    """In-app password change (FR-017 profile management) -- deliberately
+    distinct from the forgot-password OTP flow (ResetPasswordRequest):
+    proves identity via the CURRENT password instead of an emailed code,
+    and by design does NOT revoke the caller's own session afterward (see
+    password_reset_service.reset_password's session-revocation for
+    contrast) -- the user is already authenticated and asked not to be
+    signed out."""
+
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=1, max_length=256)
+
+    @model_validator(mode="after")
+    def _check_password_strength(self) -> "ChangePasswordRequest":
+        # Email-independent rules only, same reasoning as
+        # ResetPasswordRequest -- re-checked email-aware in
+        # user_service.change_password once the user is loaded.
+        validate_password_strength(self.new_password, "")
+        return self
 
 
 class TokenResponse(BaseModel):

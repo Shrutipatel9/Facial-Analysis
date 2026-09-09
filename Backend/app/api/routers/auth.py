@@ -14,6 +14,7 @@ from app.models.otp_record import OTPRecord
 from app.models.user import User
 from app.schemas.auth import (
     ChallengeResponse,
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
     LoginRequest,
@@ -85,9 +86,13 @@ async def register(
         # Registered but never verified: treat this as a fresh attempt
         # rather than a duplicate-email error (the user likely abandoned
         # signup last time, or mistyped their password and is retrying).
-        user = await user_service.restart_pending_signup(db, existing, password=payload.password)
+        user = await user_service.restart_pending_signup(
+            db, existing, password=payload.password, full_name=payload.full_name
+        )
     else:
-        user = await user_service.create_pending_user(db, email=str(payload.email), password=payload.password)
+        user = await user_service.create_pending_user(
+            db, email=str(payload.email), password=payload.password, full_name=payload.full_name
+        )
 
     record = await otp_service.request_otp(db, user, "signup")
     return _challenge_response(record)
@@ -142,6 +147,24 @@ async def get_me(current_user: User = Depends(get_current_user)) -> UserOut:
     it's exchanged the httpOnly refresh cookie for a fresh access token via
     /auth/refresh (that response carries tokens only, not the user)."""
     return UserOut.model_validate(current_user)
+
+
+@router.post("/change-password", response_model=MessageResponse)
+@limiter.limit("10/minute")
+async def change_password(
+    request: Request,
+    payload: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MessageResponse:
+    """In-app password change (FR-017) -- see ChangePasswordRequest's
+    docstring for why this does not sign the user out, unlike
+    /auth/reset-password."""
+    await user_service.change_password(
+        db, current_user, current_password=payload.current_password, new_password=payload.new_password
+    )
+    await db.commit()
+    return MessageResponse(message="Password changed.")
 
 
 @router.post("/otp/resend", response_model=ChallengeResponse)

@@ -16,7 +16,7 @@
 
 | Method & Path | Purpose | Auth required | Requirement ID |
 |---|---|---|---|
-| `POST /auth/register` | Step 1 of signup: email + password → creates pending/unverified user, triggers OTP | No | `AUTH-003`, `WF-002` |
+| `POST /auth/register` | Step 1 of signup: email + password + **full_name** (v1.13, `FR-017`) → creates pending/unverified user, triggers OTP | No | `AUTH-003`, `WF-002` |
 | `POST /auth/login` | Step 1 of login: email + password → validates credentials, triggers OTP | No | `AUTH-003`, `WF-002` |
 | `POST /auth/otp/verify` | Step 2 of both flows: submit OTP → on success issues access token (JSON) + refresh token (**httpOnly cookie**) | No (OTP is the credential at this step) | `AUTH-003`, `AUTH-011`, `WF-002` |
 | `POST /auth/otp/resend` | Re-issue OTP, subject to 60s cooldown | No | `AUTH-011` |
@@ -26,17 +26,19 @@
 | `POST /auth/forgot-password` | Step 1 of reset: `{email}` → always-generic response; issues OTP (purpose=`password_reset`) only if the account exists | No | `AUTH-015` |
 | `POST /auth/reset-password/verify` | Step 2 of reset: `{email, otp}` → on success, `{reset_token, expires_in}` | No (OTP is the credential at this step) | `AUTH-011`, `AUTH-015` |
 | `POST /auth/reset-password` | Step 3 of reset: `{reset_token, new_password}` → updates password, revokes every session for the account | No (`reset_token` is the credential at this step — see below) | `AUTH-010`, `AUTH-015` |
+| `POST /auth/change-password` | **Added v1.13.** In-app password change: `{current_password, new_password}` → verifies the current password (not an OTP/reset_token), updates it. Deliberately does **not** revoke the caller's session (contrast `reset-password`) — see ASM-009's revision in `client_requirements.md` | Yes | `FR-017` |
 
 **Token transport (v1.4):** `otp/verify` and `refresh` return `{ access_token, token_type, expires_in, user }` in JSON (`otp/verify` always included `user`; `refresh` also returns `user` so startup restore is one round-trip). The refresh token is **never** in the JSON body — the backend sets/rotates/clears it via `Set-Cookie` on `refresh_token`. The Next.js frontend calls the API through a **same-origin rewrite** (`/api/backend/*` → FastAPI) so the httpOnly cookie is first-party on the frontend origin and survives reload / tab close / browser restart.
 
 **`reset_token` (v1.5, `AUTH-015`):** a short-lived (~10-minute), single-use, purpose-scoped JWT — JSON-body-carried only, never a cookie. It shares the access token's signing secret but carries `purpose: "password_reset"` instead of `"access"`, so it is **never** valid as an `Authorization: Bearer` credential on any protected endpoint, regardless of its remaining TTL. It is bound to a fingerprint of the account's password hash at mint time, so it self-invalidates (and any replay is rejected as `RESET_TOKEN_INVALID`) the instant a reset actually completes.
 
-## 3. User Profile
+## 3. User Profile — **Implemented (Phase 7)**
 
 | Method & Path | Purpose | Auth required | Requirement ID |
 |---|---|---|---|
-| `GET /users/me` | Current user profile for dashboard (may alias or complement `GET /auth/me`) | Yes | `FR-017` |
-| `PATCH /users/me` | Basic profile management | Yes | `FR-017` |
+| `GET /users/me` | Current user profile for the dashboard's Profile card. Aliases `GET /auth/me` with `created_at` added ("member since"); includes `full_name` (v1.13) | Yes | `FR-017` |
+
+**`PATCH /users/me` still not built (revised v1.13).** The original delivery-team decision here (Phase 7's first pass) was that profile management should be fully view-only, since `DATA-001` had no editable field. The user then directly instructed two revisions: (1) capture a `full_name` at signup and use it for the dashboard greeting instead of an email-derived guess (`POST /auth/register` now requires it, `DATA-001` gained the column — `docs/database-design.md` §2.1), and (2) let a user change their password in-app without an editable-name-style `PATCH` (`POST /auth/change-password`, §2, not this router). `full_name` itself is still only set once at signup, not edited afterward via any endpoint — so `PATCH /users/me` remains unbuilt, just for a narrower reason than before. See `ASM-009`'s revision in `client_requirements.md`.
 
 ## 4. Onboarding Questionnaire
 
@@ -57,6 +59,7 @@ Implemented in `photo-upload-validation` (`Backend/app/api/routers/photos.py`). 
 | `POST /photos` | `multipart/form-data`: `angle`, `capture_method` (`upload`\|`camera`), `file`. Validates synchronously and returns the outcome — see below. Upserts by `(user_id, angle)`: a retry replaces the existing row for that angle, not a new one. | Yes | `FR-005`, `FR-006`, `BR-005` |
 | `GET /photos/status` | Per-angle status (`angle`, `label`, `instruction`, `photo`\|`null`) + `completed: bool` (`BR-004`) — mirrors `GET /questionnaire/status`'s shape, echoes each angle's label/instruction so the frontend never needs its own copy of the angle set | Yes | `BR-004` (supports the same auto-route-until-done UX as the questionnaire) |
 | `GET /photos/{id}` | Retrieve validation status/result for a specific photo; 404 generic if not found or not owned | Yes | `BR-005` |
+| `GET /photos/{id}/file` | The actual stored image bytes (raw response, `Content-Type` set from the stored file's extension), not JSON — lets the frontend show a real, persistent preview of an already-uploaded angle after a reload instead of only the ephemeral upload-time blob: URL | Yes | Supports `docs/ui-ux-design.md` §3.4's preview requirement |
 
 **`POST /photos` always returns `200`, not 201** (a request can be a first upload or a replace) — a photo that decodes fine but fails a quality check is not an HTTP error, it's a normal response with `validation_status: "failed"`. Only a malformed *request* (unknown angle, missing/oversized/wrong-type file, undecodable image) is a real 4xx (`PHOTO_ANGLE_UNKNOWN`, `PHOTO_UPLOAD_INVALID`, both 422). Uploading once every required angle already has a passed photo returns 409 `PHOTO_SET_ALREADY_COMPLETE` (one-and-done, same posture as the questionnaire's no-resubmission rule).
 
@@ -68,37 +71,47 @@ Supported upload file types: JPEG, PNG, HEIC. **DNG/RAW is not supported** — r
 
 ## 6. Facial Analysis
 
+Implemented in `facial-analysis-engine` (`Backend/app/api/routers/analysis.py`). **Resolved:** processing is an in-process asyncio background task + polling, not a synchronous blocking request and not a new task-queue (Celery/Redis) — no queue exists anywhere in this stack, and a single background call didn't justify adding one.
+
 | Method & Path | Purpose | Auth required | Requirement ID |
 |---|---|---|---|
-| `POST /analysis` | Trigger MediaPipe/OpenCV measurement + OpenAI narrative generation for a validated photo set + questionnaire response | Yes | `FR-007`, `FR-008` |
-| `GET /analysis/{id}` | Poll analysis status/result (processing is not instant — see `docs/ui-ux-design.md` §3.5) | Yes | `FR-007`, `FR-008` |
+| `POST /analysis` | Trigger; guards on questionnaire submitted (409 `QUESTIONNAIRE_NOT_SUBMITTED`) then photo set ready (409 `PHOTO_SET_NOT_READY`) then **a succeeded payment (402 `PAYMENT_REQUIRED`)** then no existing non-failed analysis (409 `ANALYSIS_ALREADY_EXISTS`); returns 200 `{id, status: "processing"}` immediately, runs CV/MediaPipe measurements **and** the DeepSeek narrative call together as one background task. Still a user-facing "Start Analysis" click (`components/analysis/AnalysisScreen.tsx`), same as before payment gating existed — only reachable once payment has already succeeded. The Stripe webhook (§8) does **not** call this itself; it only flips `Payment.status` | Yes | `FR-007`, `FR-008`, `BR-004`, `BR-001` |
+| `GET /analysis/status` | `{status: "none"\|"processing"\|"completed"\|"failed", analysis_id: string\|null}` — mirrors `GET /photos/status`'s shape; lets the frontend guard/page recover state after a reload without caching an id client-side | Yes | Supports the same auto-route-until-done UX as photos/questionnaire |
+| `GET /analysis/{id}` | Full result: `measurements` (always once completed), `narrative_result` (nullable — see below), `error_message` (if failed); 404 generic if not found/not owned | Yes | `FR-007`, `FR-008` |
 
-Whether analysis is synchronous, polled, or pushed (websocket) is an implementation decision for the `facial-analysis-engine` module plan — not fixed here.
+A `"failed"` analysis may be retried via `POST /analysis` again (a new row) — `"processing"`/`"completed"` may not, same one-and-done posture as the questionnaire/photos.
+
+**Pay-before-analysis (v1.11 revision):** `status`/`measurements`/`narrative_result` are now all produced together in one pipeline run, only ever started after payment has already succeeded — there is no more free/paid split. `status` reaches `"completed"` once CV measurements succeed; if the DeepSeek narrative call itself then fails, `narrative_result` stays `null` but `status` remains `"completed"` (the user already paid and has valid measurements) — a manual pipeline re-invoke is the practical retry, not an automated one yet. See `docs/database-design.md` §2.6.
+
+**AI vendor (`ASM-006`):** built against **DeepSeek**, not the client-stated OpenAI (`NFR-008`) — see `docs/database-design.md` §2.6, `docs/security.md` §7. **Multimodal:** the request to the AI includes the three photos (base64) alongside the CV measurements and questionnaire answers, matching `FR-008`'s "not photo analysis alone."
 
 ## 7. Reports
 
 | Method & Path | Purpose | Auth required | Requirement ID |
 |---|---|---|---|
-| `POST /reports` | Assemble and auto-publish a report from an analysis result (`BR-002`) | Yes | `FR-009`–`FR-014` |
-| `GET /reports/{id}` | Retrieve report — teaser fields pre-payment, full content post-payment (`BR-001`) | Yes | `FR-015` |
-| `GET /reports/{id}/pdf` | Download PDF export — should itself enforce the payment gate, not rely on the UI alone | Yes | `FR-013`, `BR-001` |
-| `GET /reports` | List a user's reports for the dashboard | Yes | `FR-017` |
+| `POST /reports` | Idempotent get-or-create: assembles a report from the user's completed (and, by construction, already-paid) analysis result (`BR-002`); 409 `ANALYSIS_NOT_COMPLETED` if analysis isn't done. Returns the same report on a repeat call rather than erroring, unlike `POST /analysis` — cheap/safe to retry since assembly is AI-free | Yes | `FR-009`–`FR-014` |
+| `GET /reports/{id}` | Retrieve report — `teaser` (intro + one-line-per-feature) and `full` (everything else); `full` is always populated, no payment-status field | Yes | `FR-015` |
+| `GET /reports/{id}/pdf` | Lazily renders and caches the PDF on first call, then streams the cached bytes | Yes | `FR-013` |
+| `GET /reports` | List a user's reports (today: 0 or 1, see `database-design.md` §5) for the dashboard | Yes | `FR-017` |
 
-**The payment gate must be enforced server-side on every report-content and PDF endpoint**, not only hidden in the UI — this follows directly from `BR-001` being a business rule, not a display preference.
+**Resolved (v1.9):** report generation is synchronous, not async/polling like `POST /analysis` — assembly is a pure, AI-free data transform of the analysis result's current `measurements`/`narrative_result` (`docs/database-design.md` §2.7), so no `GET /reports/status` endpoint exists or is needed.
 
-## 8. Payment
+**No payment-awareness here (v1.11 revision):** payment gates the *start* of analysis itself (§6, `BR-001`), not report reads — a `Report` can only ever be created from an already-`"completed"` analysis, which by construction never exists without a preceding succeeded payment. `get_or_create_report`/`get_report` still re-run `assemble_sections()` on every read (cheap, no I/O) — kept not for a pre/post-payment transition (that no longer exists) but for the one remaining case a narrative can still be null post-payment: the DeepSeek call itself failing after CV succeeded. When a manual pipeline retry later succeeds, the next report read picks up the real content automatically, and `pdf_reference` is cleared so a stale cached PDF isn't served. The bypass-attempt test that used to live here (`TestBR001BypassAttempt`) now lives against `POST /analysis` instead (§6) — see `Backend/tests/integration/test_payment_flow.py`.
+
+## 8. Payment — **Implemented (Phase 6, v1.11)**
 
 | Method & Path | Purpose | Auth required | Requirement ID |
 |---|---|---|---|
-| `POST /payments/checkout` | Create a Stripe checkout/payment session for a given report, using a **configurable** price | Yes | `FR-015`, `FR-016`, `OQ-002` |
-| `POST /payments/webhook` | Stripe webhook receiver confirming payment success/failure | No (Stripe-signed, not user-authenticated) | `FR-015` |
-| `GET /payments` | Payment history for the dashboard | Yes | `FR-017` |
+| `POST /payments/checkout` | No request body (nothing to reference — no report/analysis exists yet). Guards on questionnaire submitted (409) and photo set ready (409), same prerequisites `POST /analysis` itself checks; creates a Stripe Checkout Session (`mode="payment"`) using the **configurable** price/currency, inserts a `pending` `Payment` row, returns `{checkout_url}`. 409 `ALREADY_PAID` if a `succeeded` payment already exists for this user | Yes | `FR-015`, `FR-016`, `OQ-002` |
+| `GET /payments/status` | `{status: "unpaid"\|"pending"\|"succeeded", price_cents, price_currency}` — mirrors `GET /questionnaire/status`/`GET /photos/status`'s shape; used by both the frontend payment guard and the `/payment` paywall page (so price is never hardcoded client-side) | Yes | `FR-016`, `OQ-002` |
+| `POST /payments/webhook` | Stripe webhook receiver. Verifies `Stripe-Signature` against the raw request body (`stripe.Webhook.construct_event`) — 400 `INVALID_WEBHOOK_SIGNATURE` on failure. On `checkout.session.completed`: flips the matching `Payment.status` to `"succeeded"` **only** — does **not** call `analysis_service.trigger_analysis` itself (a deliberate choice: the pipeline can finish in a couple of seconds, and auto-triggering it made the "analyzing" step invisible to the user). The user starts analysis themselves via `POST /analysis` (§6) once back in the app, now unblocked. On `checkout.session.expired`/`payment_intent.payment_failed`: `status="failed"`. An unrecognized `stripe_session_id` is acknowledged (200), not errored — Stripe expects a 200 for events it can't act on | No (Stripe-signed via header + raw body, not user-authenticated — deliberately has no `get_current_user` dependency) | `FR-015` |
+| `GET /payments` | Payment history for the calling user only, for the dashboard | Yes | `FR-017` |
 
-`OQ-002` (price) is explicitly open — `checkout` must read price from configuration so the eventual pricing decision doesn't require an API contract change.
+`OQ-002` (price) is explicitly open — `checkout` reads `REPORT_PRICE_CENTS`/`REPORT_PRICE_CURRENCY` from configuration, copying the value onto the `Payment` row at creation time so a later price change never affects an in-progress payment (see `docs/database-design.md` §2.8). Real Stripe API calls are never made in automated tests — the Stripe client is monkeypatched (`payment_service.get_stripe_client()`, same posture as `ai_narrative_service.get_ai_client()`), per `BR-006`. No raw card data ever reaches this backend — the client redirects to Stripe's own hosted Checkout page; see `docs/security.md` §7. Verified live end-to-end with real Stripe test-mode Checkout (Stripe CLI webhook forwarding), not just mocked automated tests.
 
-## 9. Dashboard
+## 9. Dashboard — **Implemented (Phase 7)**
 
-Dashboard is a composition of `GET /users/me`, `GET /reports`, and `GET /payments` (§3, §7, §8) rather than a dedicated endpoint — no separate dashboard-specific data is implied by `FR-017` beyond what those three already expose.
+Dashboard is a composition of `GET /users/me`, `GET /reports`, and `GET /payments` (§3, §7, §8) rather than a dedicated endpoint — no separate dashboard-specific data is implied by `FR-017` beyond what those three already expose. `frontend/src/app/(protected)/dashboard/page.tsx` renders each as its own independently-loading section (report status/download, payment history, profile) so one slow/failed section never blocks the others.
 
 ## 10. Explicitly Not Built (Phase 2)
 
@@ -109,9 +122,12 @@ No endpoints for: admin report review/approval, email notification triggers, Pay
 | Item | Status |
 |---|---|
 | Report price value/model | Open (`OQ-002`) — endpoint contract must stay price-agnostic. |
-| Analysis endpoint sync/async mechanism | Not decided — see `docs/ui-ux-design.md` §3.5. |
-| Photo storage/retrieval mechanism | Not decided — see `docs/database-design.md` §5. |
-| Multiple reports per user | Not decided — affects whether `/reports` needs pagination/filtering beyond a simple list — see `docs/database-design.md` §1. |
+| Analysis endpoint sync/async mechanism | **Resolved** — in-process background task + polling, see §6 above. |
+| Photo storage/retrieval mechanism | **Resolved** — `DatabasePhotoStorage` default, `GET /photos/{id}/file` retrieval, see `docs/database-design.md` §2.5. |
+| Multiple reports per user | **Resolved** — one per user, `/reports` returns 0 or 1 today, no pagination needed — see `docs/database-design.md` §5. |
+| Report generation sync/async mechanism | **Resolved** — synchronous, AI-free data transform, no polling endpoint — see §7 above. |
+| Payment gating mechanism | **Resolved (Phase 6, v1.11)** — Stripe hosted Checkout + webhook; the gate sits on `POST /analysis` itself (`PaymentRequiredError`, 402), not on report reads — see §6/§8 above. |
+| When analysis (CV + the paid AI narrative call) happens | **Resolved (Phase 6, v1.11)** — both run together, in one pipeline pass, only ever reachable via a user-facing "Start Analysis" click once payment has already succeeded; the webhook itself only flips `Payment.status`, it does not trigger the pipeline — see §6/§8 above and `docs/database-design.md` §2.6. |
 
 ## 12. Related Documents
 

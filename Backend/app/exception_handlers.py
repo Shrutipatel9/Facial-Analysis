@@ -9,23 +9,34 @@ from fastapi.responses import JSONResponse
 
 from app.exceptions import (
     AccountLockedError,
+    AlreadyPaidError,
+    AnalysisAlreadyExistsError,
+    AnalysisNotCompletedError,
+    AnalysisNotFoundError,
     CsrfRejectedError,
+    CurrentPasswordIncorrectError,
     DisclaimerNotAcceptedError,
     EmailAlreadyVerifiedError,
     EmailDeliveryError,
     InvalidCredentialsError,
+    InvalidWebhookSignatureError,
     OTPChallengeNotFoundError,
     OTPCooldownError,
     OTPExpiredError,
     OTPInvalidError,
+    PaymentRequiredError,
     PhotoAngleUnknownError,
     PhotoNotFoundError,
     PhotoSetAlreadyCompleteError,
+    PhotoSetNotReadyError,
     PhotoUploadInvalidError,
     QuestionnaireAnswersInvalidError,
+    QuestionnaireNotSubmittedError,
     RefreshTokenExpiredError,
     RefreshTokenInvalidError,
     RefreshTokenReuseError,
+    ReportImageNotFoundError,
+    ReportNotFoundError,
     ResetTokenInvalidError,
     SamePasswordError,
     UnauthorizedError,
@@ -130,6 +141,13 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_error("UNAUTHORIZED", "Authentication required."),
         )
 
+    @app.exception_handler(CurrentPasswordIncorrectError)
+    async def _current_password_incorrect(request: Request, exc: CurrentPasswordIncorrectError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=_error("CURRENT_PASSWORD_INCORRECT", str(exc)),
+        )
+
     @app.exception_handler(SamePasswordError)
     async def _same_password(request: Request, exc: SamePasswordError) -> JSONResponse:
         return JSONResponse(
@@ -192,7 +210,10 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def _photo_set_already_complete(request: Request, exc: PhotoSetAlreadyCompleteError) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
-            content=_error("PHOTO_SET_ALREADY_COMPLETE", "All required photos have already been submitted."),
+            content=_error(
+                "PHOTO_SET_ALREADY_COMPLETE",
+                "Photos can't be changed after payment. Contact support if you need a new analysis.",
+            ),
         )
 
     @app.exception_handler(PhotoNotFoundError)
@@ -200,4 +221,76 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content=_error("PHOTO_NOT_FOUND", "Photo not found."),
+        )
+
+    @app.exception_handler(PhotoSetNotReadyError)
+    async def _photo_set_not_ready(request: Request, exc: PhotoSetNotReadyError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=_error("PHOTO_SET_NOT_READY", "All required photos must pass validation before analysis."),
+        )
+
+    @app.exception_handler(QuestionnaireNotSubmittedError)
+    async def _questionnaire_not_submitted(request: Request, exc: QuestionnaireNotSubmittedError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=_error("QUESTIONNAIRE_NOT_SUBMITTED", "The onboarding questionnaire must be submitted first."),
+        )
+
+    @app.exception_handler(AnalysisAlreadyExistsError)
+    async def _analysis_already_exists(request: Request, exc: AnalysisAlreadyExistsError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=_error("ANALYSIS_ALREADY_EXISTS", "Analysis has already been started for this account."),
+        )
+
+    @app.exception_handler(AnalysisNotFoundError)
+    async def _analysis_not_found(request: Request, exc: AnalysisNotFoundError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content=_error("ANALYSIS_NOT_FOUND", "Analysis not found."),
+        )
+
+    @app.exception_handler(AnalysisNotCompletedError)
+    async def _analysis_not_completed(request: Request, exc: AnalysisNotCompletedError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=_error(
+                "ANALYSIS_NOT_COMPLETED", "Your facial analysis must complete before a report can be generated."
+            ),
+        )
+
+    @app.exception_handler(ReportNotFoundError)
+    async def _report_not_found(request: Request, exc: ReportNotFoundError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content=_error("REPORT_NOT_FOUND", "Report not found."),
+        )
+
+    @app.exception_handler(ReportImageNotFoundError)
+    async def _report_image_not_found(request: Request, exc: ReportImageNotFoundError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content=_error("REPORT_IMAGE_NOT_FOUND", "No image is available for this feature."),
+        )
+
+    @app.exception_handler(AlreadyPaidError)
+    async def _already_paid(request: Request, exc: AlreadyPaidError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=_error("ALREADY_PAID", "You have already paid -- analysis will start automatically."),
+        )
+
+    @app.exception_handler(InvalidWebhookSignatureError)
+    async def _invalid_webhook_signature(request: Request, exc: InvalidWebhookSignatureError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=_error("INVALID_WEBHOOK_SIGNATURE", "Webhook signature verification failed."),
+        )
+
+    @app.exception_handler(PaymentRequiredError)
+    async def _payment_required(request: Request, exc: PaymentRequiredError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            content=_error("PAYMENT_REQUIRED", "Payment is required before analysis can start."),
         )

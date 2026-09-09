@@ -1,25 +1,67 @@
 "use client"
 
+import { LayoutDashboard } from "lucide-react"
 import { motion } from "motion/react"
+import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useEffect } from "react"
 
 import { BrandLoader } from "@/components/branding/BrandLoader"
 import { Logo } from "@/components/branding/Logo"
 import { UserMenu } from "@/components/layout/UserMenu"
+import { Button } from "@/components/ui/button"
+import { useAnalysisGuard } from "@/hooks/useAnalysisGuard"
 import { useAuthGuard } from "@/hooks/useAuthGuard"
+import { useOnboardingEntryGuard } from "@/hooks/useOnboardingEntryGuard"
+import { usePaymentGuard } from "@/hooks/usePaymentGuard"
 import { usePhotoUploadGuard } from "@/hooks/usePhotoUploadGuard"
 import { useQuestionnaireGuard } from "@/hooks/useQuestionnaireGuard"
+import * as reportApi from "@/lib/reports/reportApi"
 import { cn } from "@/lib/utils"
+import { useReportStore } from "@/store/reportStore"
 
-const FULL_BLEED = new Set(["/dashboard", "/questionnaire", "/photos"])
+const FULL_BLEED = new Set(["/questionnaire", "/photos", "/payment", "/analysis", "/report"])
+const INNER_SCROLL = new Set(["/report"])
 
 export default function ProtectedRouteGroupLayout({ children }: { children: React.ReactNode }) {
   const { isChecking: isAuthChecking } = useAuthGuard()
   const { isChecking: isQuestionnaireChecking } = useQuestionnaireGuard(!isAuthChecking)
   const { isChecking: isPhotoChecking } = usePhotoUploadGuard(!isAuthChecking && !isQuestionnaireChecking)
-  const isChecking = isAuthChecking || isQuestionnaireChecking || isPhotoChecking
+  const { isChecking: isPaymentChecking } = usePaymentGuard(
+    !isAuthChecking && !isQuestionnaireChecking && !isPhotoChecking
+  )
+  const { isChecking: isAnalysisChecking } = useAnalysisGuard(
+    !isAuthChecking && !isQuestionnaireChecking && !isPhotoChecking && !isPaymentChecking
+  )
+  const isChecking =
+    isAuthChecking || isQuestionnaireChecking || isPhotoChecking || isPaymentChecking || isAnalysisChecking
+  // Single, centralized redirect decision for an incomplete user landing on
+  // /dashboard -- see useOnboardingEntryGuard's docstring for why this
+  // can't be three independent per-step effects.
+  useOnboardingEntryGuard(!isAuthChecking)
   const pathname = usePathname()
   const isFullBleed = FULL_BLEED.has(pathname)
+  // Report owns its own right-pane scroll so the scan logo stays fixed.
+  const usesInnerScroll = INNER_SCROLL.has(pathname)
+  const hasReport = useReportStore((state) => state.hasReport)
+  const setHasReport = useReportStore((state) => state.setHasReport)
+
+  // Dashboard nav only after at least one report exists (FR-017 workspace).
+  useEffect(() => {
+    if (isChecking || hasReport !== null) return
+    let cancelled = false
+    reportApi
+      .listReports()
+      .then((reports) => {
+        if (!cancelled) setHasReport(reports.length > 0)
+      })
+      .catch(() => {
+        if (!cancelled) setHasReport(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isChecking, hasReport, setHasReport])
 
   if (isChecking) {
     return <BrandLoader />
@@ -48,7 +90,20 @@ export default function ProtectedRouteGroupLayout({ children }: { children: Reac
       >
         <div className="flex h-14 items-center justify-between px-5 sm:px-8">
           <Logo href="/dashboard" size="md" />
-          <UserMenu />
+          <div className="flex items-center gap-2">
+            {pathname !== "/dashboard" && hasReport ? (
+              <Button
+                variant="ghost"
+                className="h-9 rounded-full px-3.5"
+                render={<Link href="/dashboard" />}
+                nativeButton={false}
+              >
+                <LayoutDashboard className="size-4" />
+                Dashboard
+              </Button>
+            ) : null}
+            <UserMenu />
+          </div>
         </div>
       </motion.header>
 
@@ -58,8 +113,8 @@ export default function ProtectedRouteGroupLayout({ children }: { children: Reac
         transition={{ duration: 0.4, ease: "easeOut" }}
         className={cn(
           "relative flex min-h-0 flex-1 flex-col",
-          // auto = scrollbar only when content actually overflows; never force both axes
-          isFullBleed && "overflow-x-hidden overflow-y-auto",
+          isFullBleed && !usesInnerScroll && "overflow-x-hidden overflow-y-auto",
+          isFullBleed && usesInnerScroll && "overflow-hidden",
           !isFullBleed && "mx-auto w-full max-w-6xl px-6 py-10 sm:py-12"
         )}
       >

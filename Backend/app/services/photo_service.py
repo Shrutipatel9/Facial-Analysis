@@ -16,6 +16,7 @@ from app.exceptions import (
     PhotoSetAlreadyCompleteError,
     PhotoUploadInvalidError,
 )
+from app.models.payment import Payment
 from app.models.photo import Photo
 from app.services.photo_storage import get_photo_storage
 from app.services.photo_validation_service import REQUIRED_ANGLES_BY_ID, validate_photo
@@ -59,13 +60,13 @@ async def upload_photo(
     if extension is None:
         raise PhotoUploadInvalidError("Unsupported file type. Upload a JPEG, PNG, or HEIC photo.")
 
-    # BR-004: once every required angle has already passed, this is a
-    # one-and-done set -- same posture as the questionnaire's
-    # no-resubmission rule. Checked before doing any decode/storage work.
-    if await is_photo_set_ready(db, user_id):
+    # Lock the set once payment has succeeded (analysis consumes these
+    # photos). Until then, users may replace any angle from the review
+    # screen — including after all three have already passed.
+    if await _has_succeeded_payment(db, user_id):
         raise PhotoSetAlreadyCompleteError()
 
-    checks = validate_photo(content)
+    checks = validate_photo(content, angle)
     validation_status = "passed" if all(check.passed for check in checks) else "failed"
 
     storage = get_photo_storage()
@@ -102,6 +103,16 @@ async def upload_photo(
 async def _get_by_angle(db: AsyncSession, user_id: uuid.UUID, angle: str) -> Photo | None:
     result = await db.execute(select(Photo).where(Photo.user_id == user_id, Photo.angle == angle))
     return result.scalar_one_or_none()
+
+
+async def _has_succeeded_payment(db: AsyncSession, user_id: uuid.UUID) -> bool:
+    # Queried here directly to avoid a payment_service ↔ photo_service import cycle.
+    result = await db.execute(
+        select(Payment.id)
+        .where(Payment.user_id == user_id, Payment.status == "succeeded")
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
 
 
 async def get_photo(db: AsyncSession, user_id: uuid.UUID, photo_id: uuid.UUID) -> Photo:

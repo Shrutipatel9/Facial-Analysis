@@ -39,8 +39,14 @@ export interface ResetPasswordVerifyResponse {
   expires_in: number
 }
 
-export function register(email: string, password: string): Promise<ChallengeResponse> {
-  return publicRequest<ChallengeResponse>("/auth/register", { email, password })
+export function register(email: string, password: string, fullName: string): Promise<ChallengeResponse> {
+  return publicRequest<ChallengeResponse>("/auth/register", { email, password, full_name: fullName })
+}
+
+export function changePassword(currentPassword: string, newPassword: string): Promise<MessageResponse> {
+  return authenticatedRequest<MessageResponse>("/auth/change-password", {
+    body: { current_password: currentPassword, new_password: newPassword },
+  })
 }
 
 export function login(email: string, password: string): Promise<ChallengeResponse> {

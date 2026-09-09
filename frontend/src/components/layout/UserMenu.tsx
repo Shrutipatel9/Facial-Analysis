@@ -12,7 +12,15 @@ import * as authApi from "@/lib/auth/authApi"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/authStore"
 
-function userInitials(email: string | undefined): string {
+function userInitials(fullName: string | null | undefined, email: string | undefined): string {
+  const nameParts = fullName?.trim().split(/\s+/).filter(Boolean) ?? []
+  if (nameParts.length >= 2) {
+    return `${nameParts[0]![0] ?? ""}${nameParts[1]![0] ?? ""}`.toUpperCase()
+  }
+  if (nameParts.length === 1) {
+    return nameParts[0]!.slice(0, 2).toUpperCase()
+  }
+
   if (!email) return "?"
   const local = email.split("@")[0] ?? email
   const parts = local.split(/[._-]/).filter(Boolean)
@@ -29,7 +37,7 @@ export function UserMenu() {
   const user = useAuthStore((state) => state.user)
   const router = useRouter()
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const initials = userInitials(user?.email)
+  const initials = userInitials(user?.full_name, user?.email)
 
   async function handleLogout() {
     try {
@@ -79,7 +87,7 @@ export function UserMenu() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-medium tracking-wide text-primary/70 uppercase">
-                      Signed in as
+                      {user?.full_name ? user.full_name : "Signed in as"}
                     </p>
                     <p className="mt-0.5 truncate text-sm font-medium leading-snug">{user?.email}</p>
                   </div>

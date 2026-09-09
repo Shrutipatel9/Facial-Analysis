@@ -234,3 +234,16 @@ async def submit_response(
 async def has_submitted(db: AsyncSession, user_id: uuid.UUID) -> bool:
     result = await db.execute(select(QuestionnaireResponse.id).where(QuestionnaireResponse.user_id == user_id).limit(1))
     return result.scalar_one_or_none() is not None
+
+
+async def get_latest_response(db: AsyncSession, user_id: uuid.UUID) -> QuestionnaireResponse | None:
+    """Reused by facial-analysis-engine (Phase 4) -- there is no
+    resubmission UI yet, so "latest" and "only" are equivalent today, but
+    this is written to stay correct if that ever changes."""
+    result = await db.execute(
+        select(QuestionnaireResponse)
+        .where(QuestionnaireResponse.user_id == user_id)
+        .order_by(QuestionnaireResponse.submitted_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()

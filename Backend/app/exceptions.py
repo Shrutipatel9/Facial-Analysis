@@ -89,6 +89,16 @@ class SamePasswordError(DomainError):
         super().__init__("New password must be different from your current password.")
 
 
+class CurrentPasswordIncorrectError(DomainError):
+    """POST /auth/change-password's current_password did not match --
+    unlike login's InvalidCredentialsError, this is not an
+    anti-enumeration concern (the caller is already authenticated, so
+    account existence is already known), so a specific message is fine."""
+
+    def __init__(self) -> None:
+        super().__init__("Current password is incorrect.")
+
+
 class ResetTokenInvalidError(DomainError):
     """The reset_token on POST /auth/reset-password is missing, malformed,
     expired, wrong-purpose, or already redeemed (single-use, enforced via
@@ -136,13 +146,87 @@ class PhotoUploadInvalidError(DomainError):
 
 
 class PhotoSetAlreadyCompleteError(DomainError):
-    """Upload attempted after every required angle already has a passed
-    photo (BR-004). A user who wants to redo a photo after full completion
-    isn't a supported flow in this phase -- one-and-done, same posture as
-    the questionnaire's no-resubmission rule."""
+    """Upload attempted after the photo set is locked — currently once the
+    user has a succeeded payment (photos feed analysis). Replacing an angle
+    is still allowed on the post-capture review screen before payment."""
 
 
 class PhotoNotFoundError(DomainError):
     """GET /photos/{id} for an id that doesn't exist or isn't owned by the
     caller -- collapsed into one generic case, same anti-enumeration
     posture as other not-found cases in this codebase."""
+
+
+class PhotoSetNotReadyError(DomainError):
+    """POST /analysis attempted before is_photo_set_ready() -- reuses that
+    function verbatim as its guard clause, per photo_service.py's own
+    docstring instruction for this eventual endpoint."""
+
+
+class QuestionnaireNotSubmittedError(DomainError):
+    """POST /analysis attempted before the questionnaire has been
+    submitted -- analysis needs both inputs (FR-008)."""
+
+
+class AnalysisAlreadyExistsError(DomainError):
+    """POST /analysis attempted while a processing or completed analysis
+    already exists for this user (one-and-done, same posture as
+    questionnaire/photos). Retrying a FAILED analysis is a different case,
+    allowed -- see analysis_service.trigger_analysis."""
+
+
+class AnalysisNotFoundError(DomainError):
+    """GET /analysis/{id} for an id that doesn't exist or isn't owned by
+    the caller -- same anti-enumeration posture as PhotoNotFoundError."""
+
+
+class AIProviderError(DomainError):
+    """The configured AI provider (DeepSeek, per ASM-006) failed, timed
+    out, or returned a response that couldn't be parsed into the expected
+    shape. Raised inside analysis_service.run_analysis_pipeline's
+    background task, never inside a request handler -- deliberately has no
+    exception_handlers.py entry, since it must never escape to an HTTP
+    response; the pipeline catches it and records `error_message` on the
+    FacialAnalysisResult row instead."""
+
+
+class AnalysisNotCompletedError(DomainError):
+    """POST /reports attempted before the user's latest FacialAnalysisResult
+    exists and has status="completed" -- report assembly needs the
+    finished measurements/narrative_result (FR-008), not a processing or
+    failed run."""
+
+
+class ReportNotFoundError(DomainError):
+    """GET /reports/{id} or /reports/{id}/pdf for an id that doesn't exist
+    or isn't owned by the caller -- same anti-enumeration posture as
+    PhotoNotFoundError/AnalysisNotFoundError."""
+
+
+class ReportImageNotFoundError(DomainError):
+    """GET /reports/{id}/features/{feature}/image for a feature with no
+    derivable crop (see facial_measurement_service.extract_feature_crops --
+    Hair/Neck/Ears are best-effort) or an unknown feature name. Distinct
+    from ReportNotFoundError so a missing image doesn't read as a missing
+    report to API consumers, even though both are 404s."""
+
+
+class AlreadyPaidError(DomainError):
+    """POST /payments/checkout attempted while the user already has a
+    status="succeeded" Payment row -- no second charge; one payment covers
+    this user's one analysis run."""
+
+
+class InvalidWebhookSignatureError(DomainError):
+    """POST /payments/webhook's Stripe-Signature header didn't verify
+    against STRIPE_WEBHOOK_SECRET via stripe.Webhook.construct_event --
+    the payload is untrusted and must not be processed."""
+
+
+class PaymentRequiredError(DomainError):
+    """POST /analysis (analysis_service.trigger_analysis) attempted before
+    the user has a succeeded Payment -- the literal server-side enforcement
+    point for "payment before analysis start" (BR-001), flagged in
+    testing-strategy.md as a release-blocking bypass-attempt test, same
+    severity as auth's refresh-token reuse detection. Maps to 402 Payment
+    Required, the semantically correct status for this case."""

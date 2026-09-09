@@ -17,7 +17,12 @@
 import { API_BASE_URL } from "@/lib/env"
 import { ApiError, NetworkError } from "@/lib/api/errors"
 import { isInvalidRefreshSessionError } from "@/lib/api/sessionErrors"
+import { useAnalysisStore } from "@/store/analysisStore"
 import { useAuthStore, type AuthUser } from "@/store/authStore"
+import { usePaymentStore } from "@/store/paymentStore"
+import { usePhotoStore } from "@/store/photoStore"
+import { useQuestionnaireStore } from "@/store/questionnaireStore"
+import { useReportStore } from "@/store/reportStore"
 
 export interface SessionTokens {
   access_token: string
@@ -74,7 +79,48 @@ async function toResult<T>(response: Response): Promise<T> {
   )
 }
 
+function clearUserScopedStores(): void {
+  // Auth is per-user; questionnaire/photo/analysis completion flags live in
+  // separate Zustand stores and must not leak across logout → register/login on
+  // the same tab (otherwise a new user inherits completed=true and skips onboarding).
+  useQuestionnaireStore.getState().clearForNewSession()
+  usePhotoStore.getState().reset()
+  usePaymentStore.getState().reset()
+  useAnalysisStore.getState().reset()
+  useReportStore.getState().reset()
+}
+
+function clearAuthState(): void {
+  clearUserScopedStores()
+  useAuthStore.getState().clearSession()
+}
+
+async function toBlobResult(response: Response): Promise<Blob> {
+  if (response.ok) {
+    return response.blob()
+  }
+
+  let body: BackendErrorBody | null = null
+  try {
+    body = await response.json()
+  } catch {
+    body = null
+  }
+
+  throw new ApiError(
+    response.status,
+    body?.error?.code ?? "UNKNOWN_ERROR",
+    body?.error?.message ?? `Request failed with status ${response.status}.`,
+    body?.error?.retry_after_seconds
+  )
+}
+
 function applySession(tokens: SessionTokens): void {
+  const previousUserId = useAuthStore.getState().user?.id
+  if (previousUserId && previousUserId !== tokens.user.id) {
+    clearUserScopedStores()
+  }
+
   useAuthStore.getState().setSession({
     user: tokens.user,
     accessToken: tokens.access_token,
@@ -92,7 +138,7 @@ async function performRefresh(): Promise<SessionTokens> {
     return tokens
   } catch (err) {
     if (isInvalidRefreshSessionError(err)) {
-      useAuthStore.getState().clearSession()
+      clearAuthState()
     }
     throw err
   }
@@ -154,6 +200,9 @@ export function bootstrapSession(): Promise<void> {
 
 /** Establish session after OTP success (cookie already set by that response). */
 export function establishSession(tokens: SessionTokens): void {
+  // Always wipe prior onboarding flags before binding a new session — covers
+  // register/login after logout on the same SPA tab without a full reload.
+  clearUserScopedStores()
   applySession(tokens)
   bootstrapped = true
 }
@@ -165,7 +214,7 @@ export function establishSession(tokens: SessionTokens): void {
  * can show an accurate success/error toast (docs/ui-ux-design.md's
  * "no silent action" rule) rather than swallowing it here. */
 export async function logoutSession(): Promise<void> {
-  const { accessToken, clearSession } = useAuthStore.getState()
+  const { accessToken } = useAuthStore.getState()
 
   try {
     await rawFetch("/auth/logout", {
@@ -176,7 +225,7 @@ export async function logoutSession(): Promise<void> {
       },
     })
   } finally {
-    clearSession()
+    clearAuthState()
     bootstrapped = true
   }
 }
@@ -256,6 +305,41 @@ export async function authenticatedFormRequest<T>(path: string, formData: FormDa
   }
 
   return toResult<T>(response)
+}
+
+/**
+ * Same 401-refresh-retry machinery as authenticatedRequest, but for an
+ * endpoint that returns a raw file body (e.g. GET /photos/{id}/file)
+ * instead of JSON -- used to show a real, persistent photo preview after
+ * a reload instead of only the ephemeral blob: URL created at upload
+ * time (see PhotoCaptureStep.tsx).
+ */
+export async function authenticatedBlobRequest(path: string): Promise<Blob> {
+  const buildInit = (): RequestInit => {
+    const { accessToken } = useAuthStore.getState()
+    return {
+      method: "GET",
+      headers: {
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+    }
+  }
+
+  let response = await rawFetch(path, buildInit())
+
+  if (response.status === 401) {
+    try {
+      await refreshSession()
+    } catch (err) {
+      if (isInvalidRefreshSessionError(err)) {
+        return toBlobResult(response)
+      }
+      throw err
+    }
+    response = await rawFetch(path, buildInit())
+  }
+
+  return toBlobResult(response)
 }
 
 export async function checkBackendHealth(): Promise<{ status: string }> {

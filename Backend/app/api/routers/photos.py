@@ -6,14 +6,17 @@ full angle/flow spec.
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
+from app.exceptions import PhotoNotFoundError
 from app.models.photo import Photo
 from app.models.user import User
 from app.schemas.photo import CheckResultOut, PhotoAngleStatus, PhotoOut, PhotoSetStatusResponse
 from app.services import photo_service
+from app.services.photo_storage import content_type_for, get_photo_storage
 from app.services.photo_validation_service import REQUIRED_ANGLES
 
 router = APIRouter(prefix="/photos", tags=["photos"])
@@ -83,3 +86,22 @@ async def get_photo(
 ) -> PhotoOut:
     photo = await photo_service.get_photo(db, user.id, photo_id)
     return _photo_out(photo)
+
+
+@router.get("/{photo_id}/file")
+async def get_photo_file(
+    photo_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Serves the actual stored image bytes -- lets the frontend show a
+    real preview of an already-uploaded angle after a reload, instead of
+    only the ephemeral blob: URL created at upload time (which doesn't
+    survive a reload, since it never left the browser tab that made it)."""
+    photo = await photo_service.get_photo(db, user.id, photo_id)
+    storage = get_photo_storage()
+    try:
+        content = await storage.load(photo.storage_reference)
+    except FileNotFoundError as exc:
+        raise PhotoNotFoundError() from exc
+    return Response(content=content, media_type=content_type_for(photo.storage_reference))

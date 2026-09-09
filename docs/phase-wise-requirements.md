@@ -113,67 +113,81 @@ Dependency chain: **0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9**, s
 
 ## Phase 4 — Facial Analysis Engine
 
-**Objective:** Build the from-scratch MediaPipe/OpenCV measurement pipeline and the OpenAI narrative-generation call that together produce the raw analysis feeding report generation.
+**Status: Implemented.** See `D:\zzz\facial-analysis-engine\plans.md` (Implementation status: DONE).
 
-- **Scope:** Landmark detection, per-feature measurement extraction, OpenAI prompt construction using measurements + questionnaire answers together.
+**Objective:** Build the from-scratch MediaPipe/OpenCV measurement pipeline and the AI narrative-generation call that together produce the raw analysis feeding report generation.
+
+- **Scope:** Landmark detection, per-feature measurement extraction, AI prompt construction using measurements + questionnaire answers + the photos themselves (multimodal) together.
 - **Modules/features included:** `facial-analysis-engine`.
 - **Functional requirements:** `FR-007`, `FR-008`.
-- **Technical requirements:** `NFR-007` (MediaPipe/OpenCV, built from scratch), `NFR-008` (OpenAI Vision/GPT). Both run in-process in the Python/FastAPI backend — no cross-language process boundary needed (a v1.2-era concern, resolved by the v1.3 backend-language reversion, see `docs/architecture.md` §1).
-- **Dependencies:** Phase 2 (questionnaire answers must exist as OpenAI context) and Phase 3 (validated photos must exist as input) — this phase cannot start meaningfully before both.
+- **Technical requirements:** `NFR-007` (MediaPipe/OpenCV, built from scratch — MediaPipe's Face Landmarker, 478-point mesh, a heavier task than the FaceDetector already used for photo validation), `NFR-008` (client-stated OpenAI Vision/GPT — **implemented against DeepSeek instead**, `ASM-006`, delivery-team decision, flagged for client awareness). Both run in-process in the Python/FastAPI backend — no cross-language process boundary needed (a v1.2-era concern, resolved by the v1.3 backend-language reversion, see `docs/architecture.md` §1).
+- **Dependencies:** Phase 2 (questionnaire answers must exist as AI context) and Phase 3 (validated photos must exist as input) — this phase cannot start meaningfully before both; the current guard chain also requires reaching `/analysis` only after both are complete.
 - **API requirements:** `docs/api-specification.md` §6.
 - **Database requirements:** `Facial Analysis Result` (`docs/database-design.md` §2.6).
-- **UI/UX requirements:** `docs/ui-ux-design.md` §3.5 (processing-state UX; sync/async mechanism decided in this phase).
-- **Security considerations:** Questionnaire answers sent to OpenAI include sensitive self-perception/medical-adjacent content — see `docs/security.md` §5; treat as sensitive data in transit even absent a formal retention policy.
-- **Testing requirements:** `docs/testing-strategy.md` §2 row for `FR-007`/`FR-008` — explicitly assert both measurements *and* questionnaire answers are present in the OpenAI request, not just one.
-- **Acceptance criteria:** Given a validated photo set and a submitted questionnaire, the pipeline produces measurements for all 11 features and a narrative generation call that demonstrably used both inputs.
+- **UI/UX requirements:** `docs/ui-ux-design.md` §3.5 — three-state processing screen (ready/processing/failed), explicit "Start analysis" click rather than auto-fire.
+- **Security considerations:** Questionnaire answers **and the photos themselves** sent to the AI provider include sensitive self-perception/medical-adjacent content and biometric-adjacent image data — see `docs/security.md` §7; treat as sensitive data in transit even absent a formal retention policy.
+- **Testing requirements:** `docs/testing-strategy.md` §2 row for `FR-007`/`FR-008` — explicitly asserts both measurements *and* questionnaire answers are present in the AI request, not just one (`Backend/tests/integration/test_analysis_flow.py`), with the AI client mocked per `docs/testing-strategy.md` §4/§6 (`BR-006` — third-party costs are the client's own responsibility).
+- **Acceptance criteria:** Given a validated photo set and a submitted questionnaire, the pipeline produces measurements for all 11 features and a narrative generation call that demonstrably used both inputs. Met — see `Backend/tests/unit/test_facial_measurement_service.py` and `Backend/tests/integration/test_analysis_flow.py`.
 - **Prerequisites:** Phases 1–3 complete.
 - **Expected deliverables:** Working analysis pipeline; `D:\zzz\facial-analysis-engine\plans.md` executed.
-- **Potential risks:** This is the most technically novel phase (built from scratch, `NFR-007`) — schedule/complexity risk is highest here; OpenAI cost accumulation during development is the client's responsibility (`BR-006`) but should still be mocked in automated tests (`docs/testing-strategy.md` §4) to avoid unnecessary spend.
-- **Open questions:** Sync vs. async analysis-endpoint mechanism (decided in this phase).
+- **Potential risks:** This was the most technically novel phase (built from scratch, `NFR-007`) — the CV measurement formulas and the four features MediaPipe's face mesh doesn't naturally cover (Hair, Skin, Ears, Neck) are first-pass, reasonable defaults, not clinically validated, and expect a tuning pass once real output is reviewed. AI provider cost accumulation during development is the client's responsibility (`BR-006`) but is mocked in automated tests to avoid unnecessary spend.
+- **Open questions:** `ASM-006` (DeepSeek vs. client-stated OpenAI) — not yet client-confirmed. Hair/Neck rely entirely on the AI's visual read, no dedicated CV geometry. "One analysis per user, no re-run" is tied to `database-design.md`'s open "can a user have multiple reports?" question for `report-generation`.
 
 ## Phase 5 — Report Generation & Auto-Publish
+
+**Status: Implemented.** See `D:\zzz\report-generation\plans.md` (Implementation status: DONE).
 
 **Objective:** Assemble the 11-feature structured report from the analysis result, auto-publish it, and produce a branded PDF export.
 
 - **Scope:** Report assembly (11 sections + report-level intro/preamble/limitations/recommendations), auto-publish state, PDF generation/export.
 - **Modules/features included:** `report-generation`.
 - **Functional requirements:** `FR-009`–`FR-014`.
-- **Technical requirements:** In-house PDF branding (`FR-013`) — no client branding assets exist yet (`CON-003`), delivery team designs it.
+- **Technical requirements:** In-house PDF branding (`FR-013`) — no client branding assets exist yet (`CON-003`), delivery team designs it. **Resolved:** built with ReportLab (pure-Python, no system dependencies). Report assembly itself is a synchronous, **AI-free** data transform (`Backend/app/services/report_assembly_service.py`) of Phase 4's already-computed `measurements`/`narrative_result` plus static branded template copy — no new AI call, no background task/polling.
 - **Dependencies:** Phase 4 (a completed `Facial Analysis Result` is required as input).
 - **API requirements:** `docs/api-specification.md` §7.
 - **Database requirements:** `Report` (`docs/database-design.md` §2.7), including the forward-compatible `publish_state` field for Phase 2's future review workflow.
 - **UI/UX requirements:** `docs/ui-ux-design.md` §3.6 (full report view structure; teaser vs. gated distinction is designed here even though the payment gate itself is enforced in Phase 6).
 - **Security considerations:** None specific beyond ensuring `publish_state` doesn't accidentally imply payment has occurred — publishing and payment-gating are separate concerns (`BR-002` vs. `BR-001`) and must not be conflated in this phase's implementation.
 - **Testing requirements:** `docs/testing-strategy.md` §2 rows for `FR-009`–`FR-012`, `FR-013`, `FR-014`/`BR-002`.
-- **Acceptance criteria:** Every generated report contains exactly the 11 features in `FR-009`, each with all three sub-elements (`FR-010`); report-level sections from `FR-011` are present; the report auto-publishes with no manual step; PDF export succeeds and matches the report content.
+- **Acceptance criteria:** Every generated report contains exactly the 11 features in `FR-009`, each with all three sub-elements (`FR-010`); report-level sections from `FR-011` are present; the report auto-publishes with no manual step; PDF export succeeds and matches the report content. Met — see `Backend/tests/unit/test_report_assembly_service.py` and `Backend/tests/integration/test_report_flow.py`.
 - **Prerequisites:** Phase 4 complete.
 - **Expected deliverables:** Report assembly + PDF pipeline; `D:\zzz\report-generation\plans.md` executed.
-- **Potential risks:** Conflating "published" with "payable/visible" would violate `BR-001` once Phase 6 adds the payment gate — design the teaser/full-content split now so Phase 6 only needs to add a gate, not restructure the report model.
-- **Open questions:** Whether a user can have multiple reports (`docs/database-design.md` §5) — affects `report_id` cardinality assumptions made in this phase.
+- **Potential risks:** Conflating "published" with "payable/visible" would violate `BR-001` once Phase 6 adds the payment gate — the teaser/full-content split is already built into the `GET /reports/{id}` response (Phase 5 always populates `full`). **As actually implemented (v1.11):** Phase 6 ended up gating `POST /analysis` itself rather than adding a conditional here — a `Report` can now only ever be created already paid, so `full` staying always-populated turned out to be exactly right, no DTO change needed after all.
+- **Open questions:** `ASM-007` (keyword-heuristic recommendation tiering) — not yet client-confirmed, first-pass and not clinically validated, see `docs/database-design.md` §2.7/§5.
 
 ## Phase 6 — Payment Integration
 
-**Objective:** Gate full report access behind a successful one-time Stripe payment.
+**Status: Implemented.** See `D:\zzz\payment\plans.md` (Implementation status: DONE).
 
-- **Scope:** Stripe checkout session creation, webhook handling, server-side enforcement of the payment gate on report-content and PDF endpoints.
+**Objective:** Gate the start of analysis itself behind a successful one-time Stripe payment — not just full report access.
+
+**Delivery-team refinement (v1.11, revised from an earlier deferred-narrative first pass):** the user gave a direct, explicit instruction: payment must complete before analysis starts at all, not even the free CV/MediaPipe measurement step. `analysis_service.trigger_analysis` now requires a succeeded `Payment` before creating any `FacialAnalysisResult` row (`PaymentRequiredError`, 402). The trigger itself is a user-facing "Start Analysis" click (`POST /analysis`), same as before payment gating existed — `payment_service.handle_webhook_event` only flips `Payment.status`, it does not call `trigger_analysis` (a same-day first pass had it do so automatically; reverted after the user reported the "analyzing" step felt invisible/skipped, since the pipeline can finish in a couple of seconds). `FR-015`'s teaser is optional wording ("may be shown"), so this stricter gate is still compliant, just a narrower exercise of that option. See `docs/api-specification.md` §6/§8 and `docs/database-design.md` §2.6/§2.8.
+
+- **Scope:** Stripe checkout session creation, webhook handling, server-side enforcement of the payment gate on `POST /analysis` itself.
 - **Modules/features included:** `payment`.
 - **Functional requirements:** `FR-015`, `FR-016`.
 - **Technical requirements:** `NFR-009` (Stripe only in Phase 1, no PayPal).
-- **Dependencies:** Phase 5 (a report must exist to be gated).
-- **API requirements:** `docs/api-specification.md` §8 — price must be read from configuration (`OQ-002`), never hardcoded.
-- **Database requirements:** `Payment` (`docs/database-design.md` §2.8).
-- **UI/UX requirements:** `docs/ui-ux-design.md` §3.6 (payment screen, teaser-to-full transition on success).
-- **Security considerations:** `docs/security.md` §5 (no raw card data handled by the backend; use Stripe's hosted/tokenized flow); the gate must be enforced server-side on every content/PDF endpoint (`docs/api-specification.md` §7), verified by direct authenticated API calls in testing, not just UI interaction.
+- **Dependencies:** Phase 3 (`photo-upload-validation`), Phase 2 (`onboarding-questionnaire`) — checkout itself requires both complete, same prerequisites `POST /analysis` always checked.
+- **API requirements:** `docs/api-specification.md` §6/§8 — price must be read from configuration (`OQ-002`), never hardcoded.
+- **Database requirements:** `Payment` (`docs/database-design.md` §2.8), `user_id`-scoped only, no `report_id`.
+- **UI/UX requirements:** `docs/ui-ux-design.md` §3.6 (new `/payment` paywall screen, reached right after photo upload, before any analysis exists).
+- **Security considerations:** `docs/security.md` §5/§7 (no raw card data handled by the backend; use Stripe's hosted/tokenized flow); the gate must be enforced server-side at the point analysis is triggered (`docs/api-specification.md` §6), verified by direct authenticated API calls in testing, not just UI interaction.
 - **Testing requirements:** `docs/testing-strategy.md` §2 rows for `FR-015`/`BR-001` and `FR-016`/`OQ-002` — the bypass-attempt test is a release blocker equivalent in importance to the auth reuse-detection test in Phase 1.
-- **Acceptance criteria:** An unpaid report returns teaser-only (or 403) on every content/PDF endpoint, even via direct API call; a successful Stripe payment unlocks the specific report it was for; price is a configuration value.
-- **Prerequisites:** Phase 5 complete. Report price still open (`OQ-002`) — implementation must not block on a final number, only on the value being configurable.
+- **Acceptance criteria:** `POST /analysis` 402s without a succeeded payment, even via direct API call; a successful Stripe payment unblocks the user's own subsequent "Start Analysis" click (not an automatic trigger — see the delivery-team refinement note above); price is a configuration value. Met — see `Backend/tests/integration/test_payment_flow.py` (including `TestBR001BypassAttempt`) and `Backend/tests/integration/test_analysis_flow.py::TestTriggerAnalysis::test_fails_without_payment`. The auto-trigger version of this flow was manually verified end-to-end with real Stripe test-mode Checkout (Stripe CLI webhook forwarding); the reverted, manual-trigger version has automated-test and build coverage, with the live walkthrough left to the user's own manual test.
+- **Prerequisites:** Phases 2/3 complete. Report price still open (`OQ-002`) — implementation does not block on a final number, only on the value being configurable.
 - **Expected deliverables:** Working payment gate; `D:\zzz\payment\plans.md` executed.
 - **Potential risks:** A payment-gate bypass is a direct revenue-loss bug — treat any failure in the bypass-attempt test as blocking, not advisory.
-- **Open questions:** `OQ-002` (final price) — explicitly kept open by the client; does not block this phase's implementation, only the eventual configured value.
+- **Open questions:** `OQ-002` (report price) remains open — `REPORT_PRICE_CENTS`/`REPORT_PRICE_CURRENCY` default to a clearly-flagged placeholder ($19.99), not a real number. Narrative-generation failure *after* payment succeeds has no automated retry/refund flow yet — a manual re-invoke of `run_analysis_pipeline` is the practical fallback; a proper retry mechanism is a follow-up item.
 
 ## Phase 7 — User Dashboard
 
+**Status: Implemented.** See `D:\zzz\user-dashboard\plans.md` (Implementation status: DONE).
+
 **Objective:** Give users a single place to see report history/status, download reports, view payment history, and manage their profile.
+
+**Delivery-team decision (`[Decided by delivery team]`), REVISED v1.13 by direct user instruction — see below.** `FR-017`'s "basic profile management" was originally shipped view-only. `DATA-001` (User) had no field beyond email/hashed password/verification status/role/timestamps — there was no name/display-name to make editable, and adding one purely to give `PATCH /users/me` something to do would have been inventing scope `client_requirements.md` never stated. Profile management originally surfaced email, verification status, and member-since date, plus a "Change password" action that reused the existing forgot-password OTP flow rather than a new endpoint. See `docs/api-specification.md` §3.
+
+**v1.13 revision:** the user directly asked for `full_name` to be captured at signup and used for the dashboard greeting, and for an in-app (no-sign-out) password change instead of the forgot-password redirect. Both implemented — see `docs/client_requirements.md`'s `ASM-009` v1.13 entry and `D:\zzz\user-dashboard\plans.md`'s revision note for the full detail. A persistent "Dashboard" nav button was also added to the app header per the same feedback round.
 
 - **Scope:** Dashboard aggregation view (composition, not a new domain — see `docs/api-specification.md` §9), profile management.
 - **Modules/features included:** `user-dashboard`.

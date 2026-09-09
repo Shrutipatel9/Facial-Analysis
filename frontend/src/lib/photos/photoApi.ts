@@ -1,4 +1,4 @@
-import { authenticatedFormRequest, authenticatedRequest } from "@/lib/api/apiClient"
+import { authenticatedBlobRequest, authenticatedFormRequest, authenticatedRequest } from "@/lib/api/apiClient"
 
 export type CaptureMethod = "upload" | "camera"
 export type ValidationStatus = "passed" | "failed"
@@ -36,6 +36,12 @@ export function getStatus(): Promise<PhotoSetStatusResponse> {
 
 export function getPhoto(id: string): Promise<PhotoOut> {
   return authenticatedRequest<PhotoOut>(`/photos/${id}`, { method: "GET" })
+}
+
+/** The actual stored image bytes -- used to show a persistent preview of
+ * an already-uploaded angle after a reload (see PhotoCaptureStep.tsx). */
+export function getPhotoFile(id: string): Promise<Blob> {
+  return authenticatedBlobRequest(`/photos/${id}/file`)
 }
 
 export function uploadPhoto(angle: string, captureMethod: CaptureMethod, blob: Blob): Promise<PhotoOut> {

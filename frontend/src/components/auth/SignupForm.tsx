@@ -23,7 +23,7 @@ export function SignupForm() {
 
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { fullName: "", email: "", password: "" },
     mode: "onBlur",
   })
 
@@ -33,7 +33,7 @@ export function SignupForm() {
     setIsSubmitting(true)
     try {
       const email = normalizeEmail(values.email)
-      const challenge = await authApi.register(email, values.password)
+      const challenge = await authApi.register(email, values.password, values.fullName.trim())
       toast.success("Account created. Check your inbox for a verification code.")
       const params = buildVerifyOtpParams(challenge, email)
       router.push(`/verify-otp?${params.toString()}`)
@@ -46,6 +46,27 @@ export function SignupForm() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="space-y-6">
+        <FormField
+          control={form.control}
+          name="fullName"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-[15px]">Full name</FormLabel>
+              <FormControl>
+                <Input
+                  className="h-12 text-base"
+                  type="text"
+                  autoComplete="name"
+                  placeholder="Jane Doe"
+                  disabled={isSubmitting}
+                  {...field}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
         <FormField
           control={form.control}
           name="email"

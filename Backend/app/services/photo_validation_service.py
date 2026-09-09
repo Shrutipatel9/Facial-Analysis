@@ -13,16 +13,24 @@ tuning pass once real device photos go through Phase 4/5 integration.
 """
 
 import io
+import math
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pillow_heif
 from mediapipe import Image as MPImage
 from mediapipe import ImageFormat
 from mediapipe.tasks.python import BaseOptions
-from mediapipe.tasks.python.vision import FaceDetector, FaceDetectorOptions
+from mediapipe.tasks.python.vision import (
+    FaceDetector,
+    FaceDetectorOptions,
+    FaceLandmarker,
+    FaceLandmarkerOptions,
+    RunningMode,
+)
 from mediapipe.tasks.python.vision.face_detector import FaceDetectorResult
 from PIL import Image, UnidentifiedImageError
 
@@ -30,6 +38,13 @@ pillow_heif.register_heif_opener()
 
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
 _FACE_MODEL_PATH = _BASE_DIR / "var" / "models" / "blaze_face_short_range.tflite"
+# Same model file facial_measurement_service.py uses for the real analysis
+# pipeline -- loaded again here (a second, independent FaceLandmarker
+# instance) rather than importing that module's loader, to keep this
+# module's own "pure, no DB dependency" promise and its existing
+# one-directional coupling (facial_measurement_service imports FROM this
+# module, never the reverse) intact.
+_LANDMARKER_MODEL_PATH = _BASE_DIR / "var" / "models" / "face_landmarker.task"
 
 CHECK_NAMES: tuple[str, ...] = (
     "file_readable",
@@ -38,6 +53,8 @@ CHECK_NAMES: tuple[str, ...] = (
     "face_count",
     "frame_proportion",
     "occlusion",
+    "pose_match",
+    "identity_match",
 )
 
 MIN_SHORTEST_SIDE_PX = 640
@@ -46,6 +63,15 @@ BRIGHTNESS_MAX = 200.0
 FRAME_PROPORTION_MIN = 0.15
 FRAME_PROPORTION_MAX = 0.80
 FACE_DETECTION_MIN_CONFIDENCE = 0.5
+# |nose x-offset from the eye-midpoint, normalized by eye span| below this
+# reads as a frontal pose; at or above it reads as a 3/4 turn (direction
+# from the offset's sign). First-pass heuristic (ASM-002 posture, like
+# every other threshold in this module) calibrated against this project's
+# own real frontal fixture (~0.05) and synthetic turned fixtures (~0.17,
+# ~0.24) -- see tests/fixtures/photos/pass_{right,left}_3q.jpg and
+# docs/security.md §6. Expect a tuning pass once real device photos of
+# genuine 3/4 turns go through this.
+POSE_YAW_FRONTAL_THRESHOLD = 0.12
 # Stricter than FACE_DETECTION_MIN_CONFIDENCE above. NormalizedKeypoint.score
 # and .label are always 0.0 / None for the BlazeFace short-range model
 # (verified empirically against a real portrait, not documented anywhere in
@@ -57,6 +83,7 @@ OCCLUSION_CONFIDENCE_FLOOR = 0.75
 
 _SKIPPED_UNREADABLE = "Skipped: file could not be read."
 _SKIPPED_NO_SINGLE_FACE = "Skipped: exactly one face is required for this check."
+_SKIPPED_UNKNOWN_ANGLE = "Skipped: unknown angle."
 
 
 @dataclass(frozen=True)
@@ -111,7 +138,7 @@ def _get_face_detector() -> FaceDetector:
     return FaceDetector.create_from_options(options)
 
 
-def validate_photo(content: bytes) -> list[CheckResult]:
+def validate_photo(content: bytes, angle_id: str) -> list[CheckResult]:
     try:
         image = Image.open(io.BytesIO(content))
         image.load()
@@ -123,6 +150,7 @@ def validate_photo(content: bytes) -> list[CheckResult]:
             CheckResult("face_count", False, _SKIPPED_UNREADABLE),
             CheckResult("frame_proportion", False, _SKIPPED_UNREADABLE),
             CheckResult("occlusion", False, _SKIPPED_UNREADABLE),
+            CheckResult("pose_match", False, _SKIPPED_UNREADABLE),
         ]
 
     rgb_image = image.convert("RGB")
@@ -130,16 +158,18 @@ def validate_photo(content: bytes) -> list[CheckResult]:
     results.append(_check_resolution(rgb_image))
     results.append(_check_brightness(rgb_image))
 
-    detection_result = _detect_faces(rgb_image)
+    detection_result = detect_faces(rgb_image)
     face_count_result, single_detection = _check_face_count(detection_result)
     results.append(face_count_result)
 
     if single_detection is None:
         results.append(CheckResult("frame_proportion", False, _SKIPPED_NO_SINGLE_FACE))
         results.append(CheckResult("occlusion", False, _SKIPPED_NO_SINGLE_FACE))
+        results.append(CheckResult("pose_match", False, _SKIPPED_NO_SINGLE_FACE))
     else:
         results.append(_check_frame_proportion(single_detection, rgb_image.size))
         results.append(_check_occlusion(single_detection))
+        results.append(_check_pose_match(single_detection, angle_id))
 
     return results
 
@@ -167,7 +197,10 @@ def _check_brightness(image: Image.Image) -> CheckResult:
     return CheckResult("brightness", True)
 
 
-def _detect_faces(image: Image.Image) -> FaceDetectorResult:
+def detect_faces(image: Image.Image) -> FaceDetectorResult:
+    """Public -- also reused by facial_measurement_service.py's ear
+    measurement (the BlazeFace keypoints include ear-tragion points, and
+    there's no reason to load a second lightweight detector instance)."""
     mp_image = MPImage(image_format=ImageFormat.SRGB, data=np.asarray(image, dtype=np.uint8))
     return _get_face_detector().detect(mp_image)
 
@@ -207,3 +240,44 @@ def _check_occlusion(detection: object) -> CheckResult:
             "Face may be partially obstructed. Remove hats, glasses, or hair covering the face.",
         )
     return CheckResult("occlusion", True)
+
+
+def estimate_yaw_ratio(detection: object) -> float:
+    """Normalized horizontal offset of the nose tip from the eye midpoint,
+    scaled by eye span -- ~0 for a frontal pose, meaningfully positive or
+    negative for a 3/4 turn. Uses BlazeFace's 6 keypoints (indices 0/1 are
+    the subject's own right/left eye -- MediaPipe's documented convention,
+    verified empirically against this project's own model and the real/
+    synthetic fixtures in tests/fixtures/photos/). Public so it's directly
+    unit-testable against hand-built keypoint fixtures, not just real
+    images."""
+    right_eye, left_eye, nose = detection.keypoints[0], detection.keypoints[1], detection.keypoints[2]  # type: ignore[attr-defined]
+    eye_mid_x = (right_eye.x + left_eye.x) / 2
+    eye_span = abs(left_eye.x - right_eye.x) or 1e-6
+    return (nose.x - eye_mid_x) / eye_span
+
+
+def classify_pose(detection: object) -> str:
+    """Returns "front", "right_3q", or "left_3q" -- see
+    estimate_yaw_ratio's docstring. A positive ratio means the nose sits
+    toward the subject's own left eye (image-right), i.e. the subject's
+    left side has foreshortened/turned away and their right side is more
+    prominent to the camera -- "right_3q"; negative is the mirror case."""
+    ratio = estimate_yaw_ratio(detection)
+    if abs(ratio) < POSE_YAW_FRONTAL_THRESHOLD:
+        return "front"
+    return "right_3q" if ratio > 0 else "left_3q"
+
+
+def _check_pose_match(detection: object, angle_id: str) -> CheckResult:
+    if angle_id not in REQUIRED_ANGLES_BY_ID:
+        return CheckResult("pose_match", False, _SKIPPED_UNKNOWN_ANGLE)
+    detected = classify_pose(detection)
+    if detected == angle_id:
+        return CheckResult("pose_match", True)
+    expected_label = REQUIRED_ANGLES_BY_ID[angle_id].label
+    return CheckResult(
+        "pose_match",
+        False,
+        f"This doesn't look like a {expected_label.lower()} photo. Upload a photo matching this specific angle.",
+    )
