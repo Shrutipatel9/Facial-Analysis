@@ -32,6 +32,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cv_executor import run_cv_task
 from app.db.session import async_session_factory
 from app.exceptions import (
     AnalysisAlreadyExistsError,
@@ -162,7 +163,7 @@ async def run_analysis_pipeline(analysis_id: uuid.UUID) -> None:
 
         try:
             photos = await _load_photo_bytes(session, record.user_id)
-            measurements = extract_measurements(photos)
+            measurements = await run_cv_task(extract_measurements, photos)
             record.measurements = {feature: value.to_dict() for feature, value in measurements.items()}
             await session.commit()
         except Exception:  # noqa: BLE001 -- broad on purpose, see docstring

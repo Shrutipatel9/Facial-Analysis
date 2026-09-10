@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.cv_executor import run_cv_task
 from app.exceptions import (
     PhotoAngleUnknownError,
     PhotoNotFoundError,
@@ -71,7 +72,7 @@ async def upload_photo(
     if await _has_succeeded_payment(db, user_id):
         raise PhotoSetAlreadyCompleteError()
 
-    checks = validate_photo(content, angle)
+    checks = await run_cv_task(validate_photo, content, angle)
     validation_status = "passed" if all(check.passed for check in checks) else "failed"
 
     storage = get_photo_storage()
@@ -167,4 +168,4 @@ async def get_identity_check(db: AsyncSession, user_id: uuid.UUID) -> IdentityCh
         assert photo is not None  # guaranteed by is_photo_set_ready above
         photos[angle_id] = await storage.load(photo.storage_reference)
 
-    return check_photo_set_identity(photos)
+    return await run_cv_task(check_photo_set_identity, photos)
