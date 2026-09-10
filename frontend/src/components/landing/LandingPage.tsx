@@ -61,7 +61,7 @@ export function LandingPage() {
 
         <div className="relative flex min-h-svh flex-col">
           <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-8">
-            <Logo variant="inverted" size="md" />
+            <Logo variant="inverted" size="md" className="text-2xl sm:text-[1.75rem]" />
             <Button
               variant="ghost"
               className="h-10 rounded-full border border-white/20 bg-white/10 px-5 text-primary-foreground backdrop-blur-sm hover:bg-white/20 hover:text-primary-foreground"
@@ -77,7 +77,7 @@ export function LandingPage() {
               <motion.span
                 {...FADE_UP}
                 transition={{ duration: 0.5, ease: "easeOut" }}
-                className="mb-6 inline-flex w-fit items-center rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium tracking-wide text-primary-foreground/90 uppercase backdrop-blur-sm"
+                className="mt-8 mb-2 inline-flex w-fit items-center rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium tracking-wide text-primary-foreground/90 uppercase backdrop-blur-sm sm:mt-8"
               >
                 AI-Powered Analysis
               </motion.span>
@@ -85,7 +85,7 @@ export function LandingPage() {
               <motion.h1
                 {...FADE_UP}
                 transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
-                className="max-w-2xl text-4xl font-medium leading-tight text-primary-foreground text-balance sm:text-5xl"
+                className="mt-4 max-w-2xl text-4xl font-medium leading-tight text-primary-foreground text-balance sm:mt-6 sm:text-5xl"
               >
                 Precision facial analysis, powered by computer vision — built for clarity, not guesswork.
               </motion.h1>
