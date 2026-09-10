@@ -25,9 +25,18 @@ export interface PhotoAngleStatus {
   photo: PhotoOut | null
 }
 
+export interface IdentityCheck {
+  consistent: boolean
+  mismatched_angles: string[]
+  message: string | null
+}
+
 export interface PhotoSetStatusResponse {
   angles: PhotoAngleStatus[]
   completed: boolean
+  /** Cross-photo "same person in all three angles" result -- null until
+   * `completed` is true, since there's nothing to compare before then. */
+  identity_check: IdentityCheck | null
 }
 
 export function getStatus(): Promise<PhotoSetStatusResponse> {

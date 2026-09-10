@@ -59,18 +59,21 @@ CSP currently allows `'unsafe-inline'` / `'unsafe-eval'` for Next.js compatibili
 
 ## 6. Photo Validation as a Security/Quality Gate (BR-005, CON-006)
 
-Because Phase 1 auto-publishes reports with no admin review (`BR-002`), enforced photo validation is not just a UX nicety — it is the only safety gate between an unusable/adversarial input and a paying user's report (`BR-004`). **`ASM-002`'s threshold deferral is now resolved** — implemented in `Backend/app/services/photo_validation_service.py`, run via MediaPipe's lightweight `FaceDetector` (BlazeFace short-range) + Pillow/OpenCV for pixel-level checks. All six checks always run and are always all six reported (not just failures), for the rejection-reason UI (`docs/ui-ux-design.md` §3.4, `docs/api-specification.md` §5):
+Because Phase 1 auto-publishes reports with no admin review (`BR-002`), enforced photo validation is not just a UX nicety — it is the only safety gate between an unusable/adversarial input and a paying user's report (`BR-004`). **`ASM-002`'s threshold deferral is now resolved** — implemented in `Backend/app/services/photo_validation_service.py`, run via MediaPipe's lightweight `FaceDetector` (BlazeFace short-range) + Pillow/OpenCV for pixel-level checks. All seven per-photo checks below always run and are always all reported (not just failures), for the rejection-reason UI (`docs/ui-ux-design.md` §3.4, `docs/api-specification.md` §5):
 
 | Check | Method | Threshold |
 |---|---|---|
-| `file_readable` | `PIL.Image.open` decode | Must decode; short-circuits the rest if it doesn't (all five remaining checks reported as skipped-failed, not silently omitted) |
+| `file_readable` | `PIL.Image.open` decode | Must decode; short-circuits the rest if it doesn't (all remaining checks reported as skipped-failed, not silently omitted) |
 | `resolution` | Shortest side, px | ≥ 640px |
 | `brightness` | Grayscale mean luminance (0–255) | 60–200 |
 | `face_count` | MediaPipe detections | Exactly 1 (0 → "no face detected", ≥2 → "multiple faces detected") |
 | `frame_proportion` | Face bounding-box area ÷ image area | 0.15–0.80 |
 | `occlusion` | Overall detection confidence | ≥ 0.75 |
+| `pose_match` | Nose-tip x-offset from eye-midpoint, normalized by eye span (`estimate_yaw_ratio`) | `\|ratio\|` < 0.12 reads as frontal; classified pose must match the angle slot being uploaded to |
 
 **These are delivery-team decisions (`ASM-002`), not client-stated** — reasonable defaults, expect a tuning pass once real device photos go through Phase 4/5 integration.
+
+**Set-level identity check (`ASM-010`, v1.15) — not a per-photo check.** The seven checks above only ever look at one photo in isolation; nothing caught a different person's photo being uploaded for one required angle (user-reported). Once all three required angles individually pass, `check_photo_set_identity` compares a 5-ratio landmark signature (eye/nose/mouth/jaw/face width, normalized by inter-ocular distance, via the same `FaceLandmarker` model `facial_measurement_service.py` uses) across all three photos and flags whichever one has the largest total distance to the other two. `IDENTITY_MISMATCH_THRESHOLD = 0.6`, empirically calibrated (not assumed) — see `ASM-010` in `client_requirements.md` for the measured same-person vs. different-person distance ranges. Enforced in the UI (`PhotoSetCompleteStep.tsx` blocks Continue) and independently server-side at both `POST /payments/checkout` and `POST /analysis` (`PhotoIdentityMismatchError`, 409) so it can't be bypassed by calling either endpoint directly.
 
 **Occlusion is a simplified heuristic, not a real glasses/hat classifier.** `NormalizedKeypoint.score` and `.label` are always `0.0`/`None` for the BlazeFace short-range model — verified empirically against a real portrait during implementation, not documented anywhere in MediaPipe's own docs — so per-feature (eyes/mouth) confidence isn't available. The check falls back to the detector's overall confidence score at a stricter floor than `face_count`'s own detection threshold (0.75 vs. 0.5). A known limitation, not a gap to silently paper over.
 

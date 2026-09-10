@@ -30,6 +30,18 @@ class PhotoAngleStatus(BaseModel):
     photo: PhotoOut | None = None
 
 
+class IdentityCheckOut(BaseModel):
+    """Cross-photo "is this the same person in all three angles" result --
+    see photo_validation_service.check_photo_set_identity. Only meaningful
+    (non-None on the response) once every required angle already has a
+    passed photo; there's nothing to compare before then."""
+
+    consistent: bool
+    mismatched_angles: list[str] = []
+    message: str | None = None
+
+
 class PhotoSetStatusResponse(BaseModel):
     angles: list[PhotoAngleStatus]
     completed: bool
+    identity_check: IdentityCheckOut | None = None

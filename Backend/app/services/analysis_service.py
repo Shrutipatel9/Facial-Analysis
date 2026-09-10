@@ -37,6 +37,7 @@ from app.exceptions import (
     AnalysisAlreadyExistsError,
     AnalysisNotFoundError,
     PaymentRequiredError,
+    PhotoIdentityMismatchError,
     PhotoSetNotReadyError,
     QuestionnaireNotSubmittedError,
 )
@@ -88,6 +89,10 @@ async def trigger_analysis(db: AsyncSession, user_id: uuid.UUID) -> FacialAnalys
 
     if not await photo_service.is_photo_set_ready(db, user_id):
         raise PhotoSetNotReadyError()
+
+    identity_check = await photo_service.get_identity_check(db, user_id)
+    if identity_check is not None and not identity_check["consistent"]:
+        raise PhotoIdentityMismatchError()
 
     # The actual "payment before analysis" enforcement point -- see module
     # docstring. Checked after questionnaire/photos (matches the user-facing

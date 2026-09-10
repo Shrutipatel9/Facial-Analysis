@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react"
 
+import { FacialScanVisual } from "@/components/auth/FacialScanVisual"
 import { PaymentHistoryCard } from "@/components/dashboard/PaymentHistoryCard"
 import { ProfileCard } from "@/components/dashboard/ProfileCard"
 import { ReportSummaryCard } from "@/components/dashboard/ReportSummaryCard"
@@ -35,26 +36,41 @@ export default function DashboardPage() {
   const user = useAuthStore((state) => state.user)
 
   return (
-    <div className="w-full">
+    <div className="w-full pb-4">
       <motion.div
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: "easeOut" }}
-        className="mb-8 space-y-1"
+        className="mb-7 flex items-center justify-between gap-6 sm:mb-8"
       >
-        <h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
-          Welcome back, {displayName(user)}
-        </h1>
-        <p className="text-sm text-muted-foreground">Your reports, payments, and account, all in one place.</p>
+        <div className="min-w-0 flex-1 space-y-2">
+          <h1 className="font-heading text-2xl font-semibold tracking-tight text-balance sm:text-3xl">
+            Welcome back, {displayName(user)}
+          </h1>
+          <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
+            Your reports, payments, and account, all in one place.
+          </p>
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, scale: 0.94 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
+          className="relative hidden shrink-0 sm:block"
+          aria-hidden
+        >
+          <div className="absolute inset-[18%] rounded-full bg-primary/[0.08] blur-2xl" />
+          <FacialScanVisual className="relative h-[7.5rem] w-auto sm:h-[9rem]" tone="onLight" />
+        </motion.div>
       </motion.div>
 
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
+        initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, ease: "easeOut", delay: 0.05 }}
-        className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]"
+        transition={{ duration: 0.45, ease: "easeOut", delay: 0.08 }}
+        className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr] lg:gap-6"
       >
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-5 lg:gap-6">
           <ReportSummaryCard />
           <PaymentHistoryCard />
         </div>

@@ -49,6 +49,11 @@ export function usePaymentGuard(enabled: boolean): { isChecking: boolean } {
     const target = getNextOnboardingStep({
       questionnaireCompleted: true,
       photosCompleted: true,
+      // Trivially true here: payment already succeeded, and checkout
+      // itself re-checks identity consistency server-side
+      // (PhotoIdentityMismatchError) before ever allowing that -- see
+      // Backend/app/services/payment_service.py's create_checkout_session.
+      photosIdentityConsistent: true,
       paymentSucceeded: true,
       analysisStatus: analysisStatus ?? "none",
     })

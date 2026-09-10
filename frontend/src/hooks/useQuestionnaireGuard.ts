@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef } from "react"
 
 import * as questionnaireApi from "@/lib/questionnaire/questionnaireApi"
-import { getNextOnboardingStep } from "@/lib/onboarding/nextStep"
+import { getNextOnboardingStep, isPhotosIdentityOk } from "@/lib/onboarding/nextStep"
 import { useAnalysisStore } from "@/store/analysisStore"
 import { usePaymentStore } from "@/store/paymentStore"
 import { usePhotoStore } from "@/store/photoStore"
@@ -33,6 +33,7 @@ export function useQuestionnaireGuard(enabled: boolean): { isChecking: boolean }
   const completed = useQuestionnaireStore((state) => state.completed)
   const setCompleted = useQuestionnaireStore((state) => state.setCompleted)
   const photosCompleted = usePhotoStore((state) => state.completed)
+  const photosIdentityCheck = usePhotoStore((state) => state.identityCheck)
   const paymentStatus = usePaymentStore((state) => state.status)
   const analysisStatus = useAnalysisStore((state) => state.status)
   const pathname = usePathname()
@@ -59,11 +60,12 @@ export function useQuestionnaireGuard(enabled: boolean): { isChecking: boolean }
     const target = getNextOnboardingStep({
       questionnaireCompleted: true,
       photosCompleted: photosCompleted ?? false,
+      photosIdentityConsistent: isPhotosIdentityOk(photosCompleted, photosIdentityCheck),
       paymentSucceeded: paymentStatus === "succeeded",
       analysisStatus: analysisStatus ?? "none",
     })
     router.replace(target)
-  }, [completed, photosCompleted, paymentStatus, analysisStatus, pathname, router])
+  }, [completed, photosCompleted, photosIdentityCheck, paymentStatus, analysisStatus, pathname, router])
 
   return { isChecking: enabled && completed === null }
 }

@@ -35,6 +35,7 @@ from app.core.config import get_settings
 from app.exceptions import (
     AlreadyPaidError,
     InvalidWebhookSignatureError,
+    PhotoIdentityMismatchError,
     PhotoSetNotReadyError,
     QuestionnaireNotSubmittedError,
 )
@@ -101,6 +102,10 @@ async def create_checkout_session(db: AsyncSession, user: User) -> str:
 
     if not await photo_service.is_photo_set_ready(db, user.id):
         raise PhotoSetNotReadyError()
+
+    identity_check = await photo_service.get_identity_check(db, user.id)
+    if identity_check is not None and not identity_check["consistent"]:
+        raise PhotoIdentityMismatchError()
 
     existing = await get_succeeded_payment(db, user.id)
     if existing is not None:

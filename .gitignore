@@ -32,4 +32,7 @@ Thumbs.db
 # user-uploaded content, never committed. The face-detection model asset in
 # Backend/var/models/ IS committed (small, ~230KB, avoids a fragile
 # download-at-first-run step for the team continuing this post-handoff).
+# ArcFace recognition weights (~170MB) auto-download on first identity check.
+Backend/var/models/w600k_r50.onnx
+Backend/var/models/*.onnx.partial
 Backend/var/photo_storage/

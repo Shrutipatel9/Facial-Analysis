@@ -307,7 +307,7 @@ class TestReportPdf:
         assert resp.status_code == 200
 
         page_objects = re.findall(rb"/Type\s*/Page[^s]", resp.content)
-        expected_pages = 4 + len(ANALYSIS_FEATURES) + 1 + 1  # front matter + features + recommendations + appendix
+        expected_pages = 5 + len(ANALYSIS_FEATURES) + 1 + 1  # front matter + features + recommendations + appendix
         assert len(page_objects) == expected_pages
 
         count_match = re.search(rb"/Count\s+(\d+)", resp.content)

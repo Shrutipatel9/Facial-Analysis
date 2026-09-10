@@ -4,22 +4,34 @@ bytes and fixture images alone, same split as photo_validation_service.py.
 
 Uses MediaPipe's Face Landmarker (478-point mesh, Backend/var/models/
 face_landmarker.task) -- a different, heavier task than the FaceDetector
-already used for photo validation (bounding-box only). Runs primarily on
-the "front" angle photo; left_3q/right_3q are available as supplementary
-input but are not required for a result to exist.
+already used for photo validation (bounding-box only).
+
+Angle usage is deliberate, not an oversight: the 7 mesh-based features
+below (Eyebrows, Eyes, Nose, Cheeks, Jaw, Lips, Chin) are measured from the
+"front" photo only, on purpose -- these are mostly left/right SYMMETRY
+comparisons, and a front-on shot is the one angle where both sides sit at
+the same distance from the camera. A 3/4-turned photo foreshortens
+whichever side is turned away, which would bias a symmetry measurement,
+not improve it (verified empirically earlier this project: the same
+synthetic-turn fixtures used to calibrate photo_validation_service.py's
+pose_match check also shifted these features' own ratios by 5-25% purely
+from the camera angle, not any real facial difference). Ears is the one
+feature that's genuinely BETTER served by the 3/4 photos than the front
+one -- a front-facing shot shows ears poorly at best, so
+_measure_ears/_crop_ears use the left_3q/right_3q photos (each shows its
+own side's ear clearly), falling back to front only if a side photo isn't
+available.
 
 BR-008's 11 features are a fixed structural rule, not a suggestion -- but
 MediaPipe's face mesh only really covers 7 of them with real geometry
-(Eyebrows, Eyes, Nose, Cheeks, Jaw, Lips, Chin). Ears gets a much simpler
-measurement (reusing the ear-tragion keypoints already available from the
-existing FaceDetector). Skin gets a basic pixel-region color/tone sample,
-not real texture/dermatological analysis. Hair and Neck get no dedicated
-CV geometry at all -- both are outside what the face mesh models, and are
-covered entirely by the AI narrative call's own visual read of the photos
-(app/services/ai_narrative_service.py). This split is a first-pass,
-reasonable default, not a client-specified algorithm -- expect a tuning
-pass once real output is reviewed, same posture as the photo-validation
-thresholds (ASM-002).
+(Eyebrows, Eyes, Nose, Cheeks, Jaw, Lips, Chin). Skin gets a basic
+pixel-region color/tone sample, not real texture/dermatological analysis.
+Hair and Neck get no dedicated CV geometry at all -- both are outside what
+the face mesh models, and are covered entirely by the AI narrative call's
+own visual read of the photos (app/services/ai_narrative_service.py). This
+split is a first-pass, reasonable default, not a client-specified
+algorithm -- expect a tuning pass once real output is reviewed, same
+posture as the photo-validation thresholds (ASM-002).
 """
 
 import io
@@ -110,12 +122,12 @@ def _distance(landmarks: list[Any], i: int, j: int) -> float:
 
 
 def extract_measurements(photos: dict[str, bytes]) -> dict[str, MeasurementResult]:
-    """`photos` maps angle id -> raw image bytes (at minimum "front";
-    "left_3q"/"right_3q" if available, currently unused but accepted for
-    future supplementary measurements). Returns a dict keyed by every
-    entry in ANALYSIS_FEATURES -- always all 11 keys, mirroring
-    photo_validation_service.validate_photo's "always report everything"
-    convention."""
+    """`photos` maps angle id -> raw image bytes (at minimum "front", which
+    the 7 mesh-based features and Skin require; "left_3q"/"right_3q" if
+    available are used by Ears -- see this module's docstring for why).
+    Returns a dict keyed by every entry in ANALYSIS_FEATURES -- always all
+    11 keys, mirroring photo_validation_service.validate_photo's "always
+    report everything" convention."""
     front_bytes = photos.get("front")
     if front_bytes is None:
         unavailable = MeasurementResult(False, note="No front-angle photo available.")
@@ -146,7 +158,7 @@ def extract_measurements(photos: dict[str, bytes]) -> dict[str, MeasurementResul
         "lips": _measure_lips(landmarks, scale),
         "chin": _measure_chin(landmarks, face_height),
         "skin": _measure_skin(rgb_array, landmarks),
-        "ears": _measure_ears(front_bytes),
+        "ears": _measure_ears(photos),
         "hair": MeasurementResult(
             False, note="No dedicated CV geometry; covered by the AI's visual read of the photos."
         ),
@@ -256,27 +268,67 @@ def _measure_skin(rgb_array: np.ndarray, landmarks: list[Any]) -> MeasurementRes
     )
 
 
-def _measure_ears(front_bytes: bytes) -> MeasurementResult:
-    """Reuses the lightweight FaceDetector already built for photo
-    validation -- its keypoints include right/left ear-tragion points
-    (fixed positional order, confirmed empirically -- see
-    photo_validation_service.py). No dedicated ear-landmark model."""
-    image = Image.open(io.BytesIO(front_bytes)).convert("RGB")
+# BlazeFace short-range fixed keypoint order: right_eye, left_eye,
+# nose_tip, mouth_center, right_ear_tragion, left_ear_tragion (subject's
+# own right/left, confirmed empirically -- see photo_validation_service.py).
+_KP_RIGHT_EYE, _KP_LEFT_EYE, _KP_NOSE_TIP = 0, 1, 2
+_KP_RIGHT_EAR, _KP_LEFT_EAR = 4, 5
+
+
+def _measure_one_ear(photo_bytes: bytes, side: str) -> float | None:
+    """One side's ear-tragion position, expressed as a ratio to that SAME
+    photo's own eye-to-nose distance -- deliberately never compared across
+    two different photos' pixel coordinates (a left_3q and a right_3q shot
+    differ in framing/distance/turn angle, so raw pixel distances from one
+    aren't meaningfully comparable to the other; the same-photo ratio is)."""
+    image = Image.open(io.BytesIO(photo_bytes)).convert("RGB")
     detection_result = detect_faces(image)
     if not detection_result.detections:
-        return MeasurementResult(False, note="No face detected for ear keypoints.")
+        return None
     keypoints = detection_result.detections[0].keypoints
     if len(keypoints) < 6:
-        return MeasurementResult(False, note="Ear-tragion keypoints not available.")
-    # BlazeFace short-range fixed keypoint order: right_eye, left_eye,
-    # nose_tip, mouth_center, right_ear_tragion, left_ear_tragion.
-    right_ear, left_ear = keypoints[4], keypoints[5]
+        return None
     width, height = image.size
-    separation = math.hypot((right_ear.x - left_ear.x) * width, (right_ear.y - left_ear.y) * height)
+    ear = keypoints[_KP_RIGHT_EAR if side == "right" else _KP_LEFT_EAR]
+    eye = keypoints[_KP_RIGHT_EYE if side == "right" else _KP_LEFT_EYE]
+    nose = keypoints[_KP_NOSE_TIP]
+    scale = math.hypot((eye.x - nose.x) * width, (eye.y - nose.y) * height) or 1e-6
+    ear_to_nose = math.hypot((ear.x - nose.x) * width, (ear.y - nose.y) * height)
+    return ear_to_nose / scale
+
+
+def _measure_ears(photos: dict[str, bytes]) -> MeasurementResult:
+    """Measures each ear from its own 3/4-angle photo (left_3q shows the
+    left ear clearly, right_3q the right) rather than the front photo --
+    see this module's docstring for why front-facing shots show ears
+    poorly. Falls back to the front photo per side if that angle wasn't
+    uploaded, so this still degrades gracefully instead of going
+    unavailable. Reuses the lightweight FaceDetector already built for
+    photo validation -- no dedicated ear-landmark model exists here."""
+    left_source = photos.get("left_3q") or photos.get("front")
+    right_source = photos.get("right_3q") or photos.get("front")
+
+    metrics: dict[str, float] = {}
+    if left_source is not None:
+        value = _measure_one_ear(left_source, "left")
+        if value is not None:
+            metrics["left_ear_to_nose_ratio"] = round(value, 4)
+    if right_source is not None:
+        value = _measure_one_ear(right_source, "right")
+        if value is not None:
+            metrics["right_ear_to_nose_ratio"] = round(value, 4)
+
+    if not metrics:
+        return MeasurementResult(False, note="No face detected for ear keypoints.")
     return MeasurementResult(
         True,
-        metrics={"tragion_separation_px": round(separation, 1)},
-        note="Derived from face-detector ear-tragion keypoints, not a dedicated ear landmark model.",
+        metrics=metrics,
+        note=(
+            "Each side measured from its own 3/4-angle photo where available (better ear visibility "
+            "than a front-facing shot); derived from face-detector ear-tragion keypoints, not a "
+            "dedicated ear landmark model. Left and right are not directly comparable to each other "
+            "since they come from two different photos."
+        ),
     )
 
 

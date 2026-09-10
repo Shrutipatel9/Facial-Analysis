@@ -153,6 +153,44 @@ class TestCreateCheckout:
         count = await db.execute(select(func.count()).select_from(Payment))
         assert count.scalar_one() == 1
 
+    async def test_fails_when_a_photo_doesnt_match_the_others(
+        self, client: AsyncClient, email_sender, fake_stripe: _FakeStripe
+    ):
+        """Server-side half of the identity check -- PhotoSetCompleteStep.tsx
+        already blocks Continue in the UI, but checkout must independently
+        reject it too, same as every other payment guard in this codebase
+        (see app.exceptions.PhotoIdentityMismatchError)."""
+        headers = await _auth_headers(client, email_sender, "pay-identity-mismatch@example.com")
+        resp = await client.post(
+            "/questionnaire/responses",
+            headers=headers,
+            json={"answers": _full_valid_answers(), "disclaimer_accepted": True},
+        )
+        assert resp.status_code == 201
+
+        resp = await client.post(
+            "/photos",
+            headers=headers,
+            data={"angle": "front", "capture_method": "upload"},
+            files={"file": ("different_person.jpg", _load("different_person.jpg"), "image/jpeg")},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+        for angle_id in ("right_3q", "left_3q"):
+            fixture = _FIXTURE_FOR_ANGLE[angle_id]
+            resp = await client.post(
+                "/photos",
+                headers=headers,
+                data={"angle": angle_id, "capture_method": "upload"},
+                files={"file": (fixture, _load(fixture), "image/jpeg")},
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["validation_status"] == "passed"
+
+        resp = await client.post("/payments/checkout", headers=headers)
+        assert resp.status_code == 409
+        assert resp.json()["error"]["code"] == "PHOTO_IDENTITY_MISMATCH"
+
     async def test_already_paid_is_conflict(
         self, client: AsyncClient, email_sender, fake_stripe: _FakeStripe
     ):

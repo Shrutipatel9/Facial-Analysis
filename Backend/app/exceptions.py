@@ -163,6 +163,17 @@ class PhotoSetNotReadyError(DomainError):
     docstring instruction for this eventual endpoint."""
 
 
+class PhotoIdentityMismatchError(DomainError):
+    """Checkout/analysis attempted while photo_service.get_identity_check
+    says the three uploaded angles don't look like the same person.
+    Server-side enforcement of the same thing PhotoSetCompleteStep.tsx
+    already blocks its own Continue button on -- a user could otherwise
+    bypass that UI gate by hitting POST /payments/checkout or POST
+    /analysis directly, same reasoning as every other payment/analysis
+    guard in this codebase being re-checked server-side, not left to the
+    frontend alone."""
+
+
 class QuestionnaireNotSubmittedError(DomainError):
     """POST /analysis attempted before the questionnaire has been
     submitted -- analysis needs both inputs (FR-008)."""

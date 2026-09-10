@@ -7,8 +7,11 @@ already-assembled `sections` JSON plus its per-feature cropped images
 or re-fetch anything else.
 
 Page structure (cover, disclaimer, "Understanding Your Report", an Overview
-table, one page per feature, consolidated Recommendations + Next Steps, and
-an Appendix) was adopted from a client-provided reference report. Colors
+table, an Overall Summary, one page per feature -- each with a numeric
+Measurements table alongside the written Observations -- consolidated
+Recommendations + Next Steps, and an Appendix) was adopted from a
+client-provided reference report, extended with the Overall Summary page
+and per-feature Measurements table by direct request. Colors
 and the FaceIQ wordmark now match the actual app theme (frontend/src/app/
 globals.css's `:root` tokens, converted from OKLCH to sRGB hex once below)
 and the app's own two-weight wordmark styling (Logo.tsx: "Face" semibold +
@@ -44,11 +47,12 @@ _RECESSED = colors.HexColor("#D7E0E2")  # --border
 _PAGE_SIZE = LETTER
 _MARGIN = 0.85 * inch
 _CONFIDENTIALITY_NOTE = "Personal and confidential — generated for your individual use."
-# Cover, About, Understanding, Overview -- always exactly one page each
-# (fixed-length static copy + an 11-row table that comfortably fits one
-# Letter page), so front-matter page count is a safe compile-time constant
-# rather than something computed at render time.
-_FRONT_MATTER_PAGE_COUNT = 4
+# Cover, About, Understanding, Overview, Overall Summary -- always exactly
+# one page each (fixed-length static copy + an 11-row table/short synthesis
+# paragraph that comfortably fits one Letter page), so front-matter page
+# count is a safe compile-time constant rather than something computed at
+# render time.
+_FRONT_MATTER_PAGE_COUNT = 5
 
 
 def _to_roman(num: int) -> str:
@@ -83,11 +87,51 @@ def _draw_wordmark(canvas: Canvas, x: float, y: float, size: float, center: bool
     canvas.restoreState()
 
 
+# Static face-mesh landmark layout for _draw_face_scan_icon, as fractions
+# of face_r (see that function) -- same visual language as the animated
+# web scan glyph (frontend/src/components/auth/FacialScanVisual.tsx:
+# viewfinder corners + a face outline + a connected landmark mesh + dots
+# at each landmark), reduced to a small, legible point set since this
+# icon renders at ~0.85in and the web version's full 26-point mesh would
+# just be visual mud at that size. A PDF is static by nature, so this is
+# the animation's "settled" end-state (dots fully opaque, mesh fully
+# drawn) rather than an attempt to animate anything.
+_FACE_MESH_POINTS = {
+    "left_eyebrow": (-0.34, 0.40),
+    "right_eyebrow": (0.34, 0.40),
+    "left_eye": (-0.30, 0.24),
+    "right_eye": (0.30, 0.24),
+    "nose": (0.0, 0.0),
+    "mouth_left": (-0.20, -0.38),
+    "mouth_right": (0.20, -0.38),
+    "chin": (0.0, -0.80),
+    "jaw_left": (-0.46, -0.50),
+    "jaw_right": (0.46, -0.50),
+}
+_FACE_MESH_LINES = (
+    ("left_eyebrow", "left_eye"),
+    ("right_eyebrow", "right_eye"),
+    ("left_eye", "nose"),
+    ("right_eye", "nose"),
+    ("nose", "mouth_left"),
+    ("nose", "mouth_right"),
+    ("mouth_left", "mouth_right"),
+    ("mouth_left", "jaw_left"),
+    ("mouth_right", "jaw_right"),
+    ("jaw_left", "chin"),
+    ("jaw_right", "chin"),
+    ("left_eye", "jaw_left"),
+    ("right_eye", "jaw_right"),
+)
+
+
 def _draw_face_scan_icon(canvas: Canvas, center_x: float, center_y: float, size: float) -> None:
-    """A simple vector face-scan glyph (viewfinder corners + a minimal
-    face) in the brand accent color -- drawn with plain shapes since no
-    external image asset exists for this, per the report's "facial
-    analysis" framing."""
+    """Vector face-scan glyph (viewfinder corners + a face outline + a
+    connected landmark mesh) in the brand ink/accent colors -- the static
+    counterpart of the animated FacialScanVisual used throughout the web
+    app, so the report's cover carries the same icon identity, not an
+    unrelated simpler glyph. See _FACE_MESH_POINTS/_FACE_MESH_LINES above
+    for the layout."""
     canvas.saveState()
     canvas.setStrokeColor(_ACCENT)
     canvas.setLineWidth(1.6)
@@ -99,26 +143,50 @@ def _draw_face_scan_icon(canvas: Canvas, center_x: float, center_y: float, size:
         canvas.line(cx, cy, cx + dx * corner, cy)
         canvas.line(cx, cy, cx, cy + dy * corner)
 
+    face_r = size * 0.32
+    points_px = {
+        name: (center_x + fx * face_r, center_y + fy * face_r) for name, (fx, fy) in _FACE_MESH_POINTS.items()
+    }
+
     canvas.setStrokeColor(_INK)
-    canvas.setLineWidth(1.3)
-    face_r = size * 0.28
-    canvas.circle(center_x, center_y, face_r, stroke=1, fill=0)
-    eye_offset_x, eye_offset_y = face_r * 0.42, face_r * 0.25
-    eye_r = face_r * 0.09
-    canvas.setFillColor(_INK)
-    canvas.circle(center_x - eye_offset_x, center_y + eye_offset_y, eye_r, stroke=0, fill=1)
-    canvas.circle(center_x + eye_offset_x, center_y + eye_offset_y, eye_r, stroke=0, fill=1)
-    smile_path = canvas.beginPath()
-    smile_path.arc(
-        center_x - face_r * 0.45,
-        center_y - face_r * 0.65,
-        center_x + face_r * 0.45,
-        center_y + face_r * 0.05,
-        startAng=200,
-        extent=140,
+    canvas.setStrokeAlpha(0.85)
+    canvas.setLineWidth(1.1)
+    canvas.ellipse(
+        center_x - face_r * 0.78, center_y - face_r * 1.02, center_x + face_r * 0.78, center_y + face_r * 1.02
     )
-    canvas.drawPath(smile_path, stroke=1, fill=0)
+
+    canvas.setLineWidth(0.5)
+    canvas.setStrokeAlpha(0.4)
+    for start_name, end_name in _FACE_MESH_LINES:
+        sx, sy = points_px[start_name]
+        ex, ey = points_px[end_name]
+        canvas.line(sx, sy, ex, ey)
+
+    canvas.setFillColor(_INK)
+    canvas.setFillAlpha(1)
+    dot_r = size * 0.028
+    for px, py in points_px.values():
+        canvas.circle(px, py, dot_r, stroke=0, fill=1)
+
     canvas.restoreState()
+
+# Explicit overrides for metric keys that .title()-casing alone would
+# render awkwardly (facial_measurement_service.py's _measure_* functions
+# are the source of every key that appears here).
+_METRIC_LABEL_OVERRIDES = {
+    "mean_r": "Mean Red",
+    "mean_g": "Mean Green",
+    "mean_b": "Mean Blue",
+}
+
+
+def _humanize_metric_key(key: str) -> str:
+    if key in _METRIC_LABEL_OVERRIDES:
+        return _METRIC_LABEL_OVERRIDES[key]
+    if key.endswith("_px"):
+        return f"{key[: -len('_px')].replace('_', ' ').title()} (px)"
+    return key.replace("_", " ").title()
+
 
 _FEATURE_LABELS = {
     "hair": "Hair",
@@ -273,6 +341,8 @@ def render_pdf(report: Report, user: User, images: dict[str, bytes] | None = Non
     story.append(PageBreak())
     story.extend(_overview_flowables(styles, sections))
     story.append(PageBreak())
+    story.extend(_summary_flowables(styles, sections))
+    story.append(PageBreak())
 
     features = sections.get("features", {})
     for index, feature in enumerate(ANALYSIS_FEATURES):
@@ -356,6 +426,57 @@ def _overview_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, A
     ]
 
 
+def _measurement_flowables(styles: dict[str, ParagraphStyle], measurement: dict[str, Any]) -> list[Any]:
+    """A small Metric/Value table of the actual numeric CV measurements for
+    a feature (facial_measurement_service.MeasurementResult.metrics) --
+    distinct from "Observations" (the AI's written interpretation of those
+    numbers). Hair/Neck (and any feature whose CV extraction failed) have
+    no metrics at all (measurement.available is False) -- shown as a short
+    note instead of an empty-looking table."""
+    metrics = measurement.get("metrics")
+    if not measurement.get("available") or not metrics:
+        note = measurement.get("note") or "No direct CV measurement for this feature — assessed from your photos."
+        return [Paragraph("Measurements", styles["h2"]), Paragraph(note, styles["caption"])]
+
+    rows: list[list[Any]] = [[Paragraph("Metric", styles["table_head"]), Paragraph("Value", styles["table_head"])]]
+    for key, value in metrics.items():
+        rows.append(
+            [
+                Paragraph(_humanize_metric_key(key), styles["table_cell"]),
+                Paragraph(f"{value:g}", styles["table_cell"]),
+            ]
+        )
+    table = Table(rows, colWidths=[3.6 * inch, 2.3 * inch], repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("LINEBELOW", (0, 0), (-1, -1), 0.5, _RECESSED),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    return [Paragraph("Measurements", styles["h2"]), table]
+
+
+def _summary_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
+    """The AI's own synthesized closing paragraph (narrative_result.
+    closing_recommendations -- "a short paragraph synthesizing all 11
+    features", see ai_narrative_service.py's system prompt), given its own
+    front-matter page as a proper overall summary -- previously computed
+    but never actually shown as prose anywhere in the PDF (only bucketed
+    into the Recommendations page's per-tier bullet lists)."""
+    summary_text = sections.get("closing_recommendations") or (
+        "Your personalized overall summary will appear here once your analysis has fully "
+        "processed all 11 feature areas."
+    )
+    return [
+        Paragraph("Overall Summary", styles["h1"]),
+        Paragraph(summary_text, styles["body"]),
+    ]
+
+
 def _feature_flowables(
     styles: dict[str, ParagraphStyle], feature: str, data: dict[str, Any], image_bytes: bytes | None
 ) -> list[Any]:
@@ -364,6 +485,8 @@ def _feature_flowables(
         flowables.append(_scaled_image(image_bytes, max_width=2.6 * inch, max_height=1.9 * inch))
         caption = f"Detail from your uploaded photo — {_FEATURE_LABELS[feature].lower()} region."
         flowables.append(Paragraph(caption, styles["caption"]))
+
+    flowables.extend(_measurement_flowables(styles, data.get("measurement") or {}))
 
     flowables.append(Paragraph("Observations", styles["h2"]))
     flowables.append(Paragraph(data.get("narrative", "") or "No observations recorded.", styles["body"]))

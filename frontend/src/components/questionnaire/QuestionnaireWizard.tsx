@@ -11,7 +11,7 @@ import { DisclaimerStep } from "@/components/questionnaire/DisclaimerStep"
 import { QuestionStep } from "@/components/questionnaire/QuestionStep"
 import { Button } from "@/components/ui/button"
 import { getErrorMessage } from "@/lib/api/getErrorMessage"
-import { getNextOnboardingStep } from "@/lib/onboarding/nextStep"
+import { getNextOnboardingStep, isPhotosIdentityOk } from "@/lib/onboarding/nextStep"
 import { isVisible } from "@/lib/questionnaire/isVisible"
 import * as questionnaireApi from "@/lib/questionnaire/questionnaireApi"
 import type { AnswerValue, Question } from "@/lib/questionnaire/questionnaireApi"
@@ -44,6 +44,7 @@ export function QuestionnaireWizard() {
   const setCompleted = useQuestionnaireStore((state) => state.setCompleted)
   const reset = useQuestionnaireStore((state) => state.reset)
   const photosCompleted = usePhotoStore((state) => state.completed)
+  const photosIdentityCheck = usePhotoStore((state) => state.identityCheck)
   const paymentStatus = usePaymentStore((state) => state.status)
   const analysisStatus = useAnalysisStore((state) => state.status)
 
@@ -170,6 +171,7 @@ export function QuestionnaireWizard() {
         getNextOnboardingStep({
           questionnaireCompleted: true,
           photosCompleted: photosCompleted ?? false,
+          photosIdentityConsistent: isPhotosIdentityOk(photosCompleted, photosIdentityCheck),
           paymentSucceeded: paymentStatus === "succeeded",
           analysisStatus: analysisStatus ?? "none",
         })

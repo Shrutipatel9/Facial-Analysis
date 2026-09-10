@@ -19,7 +19,12 @@ from app.exceptions import (
 from app.models.payment import Payment
 from app.models.photo import Photo
 from app.services.photo_storage import get_photo_storage
-from app.services.photo_validation_service import REQUIRED_ANGLES_BY_ID, validate_photo
+from app.services.photo_validation_service import (
+    REQUIRED_ANGLES_BY_ID,
+    IdentityCheckResult,
+    check_photo_set_identity,
+    validate_photo,
+)
 
 # Pillow (+ pillow-heif) decodes all of these; DNG/RAW is intentionally not
 # supported this pass -- real RAW decoding needs rawpy/libraw, a much
@@ -140,3 +145,26 @@ async def is_photo_set_ready(db: AsyncSession, user_id: uuid.UUID) -> bool:
     return all(
         photo is not None and photo.validation_status == "passed" for photo in status_by_angle.values()
     )
+
+
+async def get_identity_check(db: AsyncSession, user_id: uuid.UUID) -> IdentityCheckResult | None:
+    """Cross-photo "same person in all three angles" check -- returns None
+    until the set is actually complete (is_photo_set_ready), since there's
+    nothing meaningful to compare before then. Loads every angle's actual
+    stored bytes (not just their DB rows) because
+    photo_validation_service.check_photo_set_identity needs to re-run
+    MediaPipe landmark detection on each one -- raw landmarks are never
+    persisted, only the pass/fail check results are (see Photo.
+    validation_result), same posture as facial_measurement_service's own
+    "re-detect from stored bytes, don't persist landmarks" convention."""
+    if not await is_photo_set_ready(db, user_id):
+        return None
+
+    status_by_angle = await get_status_by_angle(db, user_id)
+    storage = get_photo_storage()
+    photos: dict[str, bytes] = {}
+    for angle_id, photo in status_by_angle.items():
+        assert photo is not None  # guaranteed by is_photo_set_ready above
+        photos[angle_id] = await storage.load(photo.storage_reference)
+
+    return check_photo_set_identity(photos)

@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect } from "react"
 
-import { getNextOnboardingStep } from "@/lib/onboarding/nextStep"
+import { getNextOnboardingStep, isPhotosIdentityOk } from "@/lib/onboarding/nextStep"
 import { useAnalysisStore } from "@/store/analysisStore"
 import { usePaymentStore } from "@/store/paymentStore"
 import { usePhotoStore } from "@/store/photoStore"
@@ -39,6 +39,7 @@ const DASHBOARD_PATH = "/dashboard"
 export function useOnboardingEntryGuard(enabled: boolean): void {
   const questionnaireCompleted = useQuestionnaireStore((state) => state.completed)
   const photosCompleted = usePhotoStore((state) => state.completed)
+  const identityCheck = usePhotoStore((state) => state.identityCheck)
   const paymentStatus = usePaymentStore((state) => state.status)
   const analysisStatus = useAnalysisStore((state) => state.status)
   const pathname = usePathname()
@@ -58,11 +59,21 @@ export function useOnboardingEntryGuard(enabled: boolean): void {
     const target = getNextOnboardingStep({
       questionnaireCompleted,
       photosCompleted,
+      photosIdentityConsistent: isPhotosIdentityOk(photosCompleted, identityCheck),
       paymentSucceeded: paymentStatus === "succeeded",
       analysisStatus,
     })
     if (target !== DASHBOARD_PATH) {
       router.replace(target)
     }
-  }, [enabled, pathname, questionnaireCompleted, photosCompleted, paymentStatus, analysisStatus, router])
+  }, [
+    enabled,
+    pathname,
+    questionnaireCompleted,
+    photosCompleted,
+    identityCheck,
+    paymentStatus,
+    analysisStatus,
+    router,
+  ])
 }

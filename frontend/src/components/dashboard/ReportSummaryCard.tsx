@@ -47,7 +47,7 @@ export function ReportSummaryCard() {
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-6">
+    <div className="flex flex-col gap-4 rounded-2xl border border-border/80 bg-card p-6 shadow-[0_10px_30px_-18px_rgba(20,55,75,0.28)]">
       <div className="flex items-center gap-2.5">
         <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
           <FileText className="size-4" />

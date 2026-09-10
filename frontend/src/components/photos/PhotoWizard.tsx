@@ -24,7 +24,9 @@ export function PhotoWizard() {
   const router = useRouter()
   const angles = usePhotoStore((state) => state.angles)
   const completed = usePhotoStore((state) => state.completed)
+  const identityCheck = usePhotoStore((state) => state.identityCheck)
   const setAnglePhoto = usePhotoStore((state) => state.setAnglePhoto)
+  const setStatus = usePhotoStore((state) => state.setStatus)
   const paymentStatus = usePaymentStore((state) => state.status)
   const analysisStatus = useAnalysisStore((state) => state.status)
 
@@ -74,6 +76,20 @@ export function PhotoWizard() {
     if (photo.validation_status === "passed") {
       toast.success(`${currentAngle?.label ?? "Photo"} accepted.`)
 
+      if (usePhotoStore.getState().completed) {
+        // The local optimistic update in setAnglePhoto has no way to know
+        // the server's cross-photo identity_check result (it needs a real
+        // round trip) -- re-fetch once the set is complete, covering both
+        // the first time it becomes complete and a later replace of one
+        // angle while it was already complete (e.g. fixing the flagged
+        // "odd one out" photo).
+        try {
+          setStatus(await photoApi.getStatus())
+        } catch {
+          toast.error("Couldn't verify that all photos match. Try again or retake one.")
+        }
+      }
+
       if (editingAngleId === submittedAngleId) {
         setEditingAngleId(null)
         return photo
@@ -101,11 +117,15 @@ export function PhotoWizard() {
   }
 
   function handleContinue() {
+    // Continue is disabled until identityCheck.consistent === true
+    // (null = still checking after a retake; false = mismatch).
+    if (identityCheck?.consistent !== true) return
     setIsContinuing(true)
     router.replace(
       getNextOnboardingStep({
         questionnaireCompleted: true,
         photosCompleted: true,
+        photosIdentityConsistent: true,
         paymentSucceeded: paymentStatus === "succeeded",
         analysisStatus: analysisStatus ?? "none",
       })
@@ -163,6 +183,7 @@ export function PhotoWizard() {
           <PhotoSetCompleteStep
             angles={angles}
             isContinuing={isContinuing}
+            identityCheck={identityCheck}
             onContinue={handleContinue}
             onChangePhoto={handleChangePhoto}
           />

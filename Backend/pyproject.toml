@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
     "mediapipe>=1.0.1",
+    "onnxruntime>=1.29.0",
     "openai>=3.8.0",
     "opencv-python-headless>=5.0.0.93",
     "pillow>=12.3.0",
@@ -61,5 +62,5 @@ ignore = ["B008"]
 # inside S3PhotoStorage (see photo_storage.py) -- local-provider
 # deployments never need it installed at all. reportlab ships no
 # py.typed marker either (types-reportlab exists but lags releases).
-module = ["mediapipe.*", "boto3.*", "reportlab.*"]
+module = ["mediapipe.*", "boto3.*", "reportlab.*", "onnxruntime.*", "cv2.*"]
 ignore_missing_imports = true

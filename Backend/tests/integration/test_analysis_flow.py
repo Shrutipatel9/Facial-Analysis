@@ -151,6 +151,41 @@ class TestTriggerAnalysis:
         assert resp.status_code == 402
         assert resp.json()["error"]["code"] == "PAYMENT_REQUIRED"
 
+    async def test_fails_when_a_photo_doesnt_match_the_others(
+        self, client: AsyncClient, email_sender, db: AsyncSession
+    ):
+        """Server-side half of the identity check -- redundant with
+        payments.checkout's own guard (defense in depth, same posture as
+        this same function's is_photo_set_ready/payment re-checks) in case
+        analysis is ever triggered through a path that didn't go through
+        checkout."""
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "an-identity-mismatch@example.com")
+        await _complete_questionnaire(client, headers)
+
+        resp = await client.post(
+            "/photos",
+            headers=headers,
+            data={"angle": "front", "capture_method": "upload"},
+            files={"file": ("different_person.jpg", _load("different_person.jpg"), "image/jpeg")},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+        for angle_id in ("right_3q", "left_3q"):
+            fixture = _FIXTURE_FOR_ANGLE[angle_id]
+            resp = await client.post(
+                "/photos",
+                headers=headers,
+                data={"angle": angle_id, "capture_method": "upload"},
+                files={"file": (fixture, _load(fixture), "image/jpeg")},
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["validation_status"] == "passed"
+
+        await _mark_paid(db, user_id)
+        resp = await client.post("/analysis", headers=headers)
+        assert resp.status_code == 409
+        assert resp.json()["error"]["code"] == "PHOTO_IDENTITY_MISMATCH"
+
     async def test_succeeds_and_returns_processing_once_paid(
         self, client: AsyncClient, email_sender, db: AsyncSession
     ):

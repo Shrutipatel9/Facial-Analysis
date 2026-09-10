@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.exceptions import PhotoNotFoundError
 from app.models.photo import Photo
 from app.models.user import User
-from app.schemas.photo import CheckResultOut, PhotoAngleStatus, PhotoOut, PhotoSetStatusResponse
+from app.schemas.photo import CheckResultOut, IdentityCheckOut, PhotoAngleStatus, PhotoOut, PhotoSetStatusResponse
 from app.services import photo_service
 from app.services.photo_storage import content_type_for, get_photo_storage
 from app.services.photo_validation_service import REQUIRED_ANGLES
@@ -75,7 +75,9 @@ async def get_photos_status(
             )
         )
     completed = await photo_service.is_photo_set_ready(db, user.id)
-    return PhotoSetStatusResponse(angles=angles, completed=completed)
+    identity_check_result = await photo_service.get_identity_check(db, user.id)
+    identity_check = IdentityCheckOut(**identity_check_result) if identity_check_result is not None else None
+    return PhotoSetStatusResponse(angles=angles, completed=completed, identity_check=identity_check)
 
 
 @router.get("/{photo_id}", response_model=PhotoOut)

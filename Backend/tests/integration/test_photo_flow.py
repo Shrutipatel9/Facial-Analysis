@@ -6,6 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.models.photo import Photo
+from app.models.photo_blob import PhotoBlob
 from app.services.photo_service import is_photo_set_ready
 from app.services.photo_validation_service import REQUIRED_ANGLES
 from tests.integration.test_auth_flow import _register_and_verify
@@ -218,6 +219,168 @@ class TestPhotoStatusAndCompletion:
         await _upload(client, headers, "left_3q", "pass_left_3q.jpg")
         await _upload(client, headers, "right_3q", "pass_right_3q.jpg")
         assert await is_photo_set_ready(db, user_id) is True
+
+    async def test_identity_check_is_null_before_set_is_complete(self, client: AsyncClient, email_sender):
+        headers = await _auth_headers(client, email_sender, "photo-identity-partial@example.com")
+        resp = await client.get("/photos/status", headers=headers)
+        assert resp.json()["identity_check"] is None
+
+        await _upload(client, headers, "front", "pass_all.jpg")
+        resp = await client.get("/photos/status", headers=headers)
+        assert resp.json()["identity_check"] is None
+
+    async def test_identity_check_is_consistent_for_the_same_person(self, client: AsyncClient, email_sender):
+        headers = await _auth_headers(client, email_sender, "photo-identity-ok@example.com")
+        for angle in REQUIRED_ANGLES:
+            resp = await _upload(client, headers, angle.id, _FIXTURE_FOR_ANGLE[angle.id])
+            assert resp.status_code == 200, resp.text
+
+        resp = await client.get("/photos/status", headers=headers)
+        identity_check = resp.json()["identity_check"]
+        assert identity_check == {"consistent": True, "mismatched_angles": [], "message": None}
+
+    async def test_identity_check_flags_a_different_person_and_names_it(
+        self, client: AsyncClient, email_sender
+    ):
+        headers = await _auth_headers(client, email_sender, "photo-identity-mismatch@example.com")
+        # front is a different, real person; right_3q/left_3q are the
+        # correct angle-appropriate photos of the actual test identity --
+        # each passes its OWN per-photo checks independently (BR-005 is
+        # not what should catch this), only the cross-photo check should.
+        resp = await _upload(client, headers, "front", "different_person.jpg")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+        resp = await _upload(client, headers, "right_3q", "pass_right_3q.jpg")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+        resp = await _upload(client, headers, "left_3q", "pass_left_3q.jpg")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+
+        resp = await client.get("/photos/status", headers=headers)
+        body = resp.json()
+        # Every individual photo still shows as passed -- the mismatch is
+        # a set-level signal, not a per-photo validation failure.
+        assert body["completed"] is True
+        assert all(a["photo"]["validation_status"] == "passed" for a in body["angles"])
+
+        identity_check = body["identity_check"]
+        assert identity_check["consistent"] is False
+        assert identity_check["mismatched_angles"] == ["front"]
+        assert identity_check["message"]
+
+    async def test_identity_check_flags_a_different_person_for_right_3q_and_names_it(
+        self, client: AsyncClient, email_sender
+    ):
+        # different_person_right_3q.jpg is an angle-appropriate synthesis
+        # (asymmetric horizontal compression, same technique as
+        # pass_right_3q.jpg itself) of different_person.jpg -- the plain
+        # fixture only passes pose_match for "front", so this is needed to
+        # exercise a right_3q mismatch through the real upload endpoint,
+        # not just the pure check_photo_set_identity function.
+        headers = await _auth_headers(client, email_sender, "photo-identity-mismatch-right@example.com")
+        resp = await _upload(client, headers, "front", "pass_all.jpg")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+        resp = await _upload(client, headers, "right_3q", "different_person_right_3q.jpg")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+        resp = await _upload(client, headers, "left_3q", "pass_left_3q.jpg")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+
+        resp = await client.get("/photos/status", headers=headers)
+        identity_check = resp.json()["identity_check"]
+        assert identity_check["consistent"] is False
+        assert identity_check["mismatched_angles"] == ["right_3q"]
+
+    async def test_identity_check_flags_a_different_person_for_left_3q_and_names_it(
+        self, client: AsyncClient, email_sender
+    ):
+        headers = await _auth_headers(client, email_sender, "photo-identity-mismatch-left@example.com")
+        resp = await _upload(client, headers, "front", "pass_all.jpg")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+        resp = await _upload(client, headers, "right_3q", "pass_right_3q.jpg")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+        resp = await _upload(client, headers, "left_3q", "different_person_left_3q.jpg")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+
+        resp = await client.get("/photos/status", headers=headers)
+        identity_check = resp.json()["identity_check"]
+        assert identity_check["consistent"] is False
+        assert identity_check["mismatched_angles"] == ["left_3q"]
+
+    async def test_retake_clears_the_mismatch_and_does_not_duplicate_the_photo_row(
+        self, client: AsyncClient, email_sender, db
+    ):
+        headers = await _auth_headers(client, email_sender, "photo-identity-retake@example.com")
+        me = await client.get("/auth/me", headers=headers)
+        user_id = uuid.UUID(me.json()["id"])
+
+        resp = await _upload(client, headers, "front", "different_person.jpg")
+        assert resp.status_code == 200, resp.text
+        await _upload(client, headers, "right_3q", "pass_right_3q.jpg")
+        await _upload(client, headers, "left_3q", "pass_left_3q.jpg")
+
+        resp = await client.get("/photos/status", headers=headers)
+        assert resp.json()["identity_check"]["mismatched_angles"] == ["front"]
+
+        # Retake the flagged angle with the correct photo -- an upsert by
+        # (user_id, angle), not a new row (BR-004/photo_service.upload_photo).
+        resp = await _upload(client, headers, "front", "pass_all.jpg")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+
+        resp = await client.get("/photos/status", headers=headers)
+        identity_check = resp.json()["identity_check"]
+        assert identity_check == {"consistent": True, "mismatched_angles": [], "message": None}
+
+        rows = (await db.execute(select(Photo).where(Photo.user_id == user_id))).scalars().all()
+        assert len(rows) == 3
+        assert {row.angle for row in rows} == {"front", "right_3q", "left_3q"}
+
+        # The retake replaced the same (user_id, angle) blob in place --
+        # same content_type/extension means the same storage_reference key,
+        # so this must be an update, not a second orphaned blob row.
+        front_row = next(row for row in rows if row.angle == "front")
+        blob = await db.get(PhotoBlob, front_row.storage_reference)
+        assert blob is not None
+        assert blob.content == _load("pass_all.jpg")
+        stale_blob_count = (
+            await db.execute(
+                select(PhotoBlob).where(PhotoBlob.id.like(f"{user_id}/front%"))
+            )
+        ).scalars().all()
+        assert len(stale_blob_count) == 1
+
+    async def test_retaking_a_consistent_set_with_a_mismatched_photo_introduces_the_error(
+        self, client: AsyncClient, email_sender
+    ):
+        """The reverse direction -- a set that was fully consistent, then a
+        later retake makes it inconsistent, must be caught too, not just
+        the "was already broken" case above."""
+        headers = await _auth_headers(client, email_sender, "photo-identity-regress@example.com")
+        for angle in REQUIRED_ANGLES:
+            resp = await _upload(client, headers, angle.id, _FIXTURE_FOR_ANGLE[angle.id])
+            assert resp.status_code == 200, resp.text
+
+        resp = await client.get("/photos/status", headers=headers)
+        assert resp.json()["identity_check"]["consistent"] is True
+
+        # different_person.jpg only passes its own per-photo checks (incl.
+        # pose_match) for the "front" angle -- see the module-level fixture
+        # comment above and TestCheckPhotoSetIdentity's front-mismatch test.
+        resp = await _upload(client, headers, "front", "different_person.jpg")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["validation_status"] == "passed"
+
+        resp = await client.get("/photos/status", headers=headers)
+        identity_check = resp.json()["identity_check"]
+        assert identity_check["consistent"] is False
+        assert identity_check["mismatched_angles"] == ["front"]
 
     async def test_replace_after_set_complete_is_allowed_before_payment(
         self, client: AsyncClient, email_sender

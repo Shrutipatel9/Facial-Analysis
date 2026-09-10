@@ -26,6 +26,7 @@ from app.exceptions import (
     OTPInvalidError,
     PaymentRequiredError,
     PhotoAngleUnknownError,
+    PhotoIdentityMismatchError,
     PhotoNotFoundError,
     PhotoSetAlreadyCompleteError,
     PhotoSetNotReadyError,
@@ -228,6 +229,17 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content=_error("PHOTO_SET_NOT_READY", "All required photos must pass validation before analysis."),
+        )
+
+    @app.exception_handler(PhotoIdentityMismatchError)
+    async def _photo_identity_mismatch(request: Request, exc: PhotoIdentityMismatchError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=_error(
+                "PHOTO_IDENTITY_MISMATCH",
+                "One of your uploaded photos doesn't appear to match the others. "
+                "Please make sure all three photos are of the same person.",
+            ),
         )
 
     @app.exception_handler(QuestionnaireNotSubmittedError)

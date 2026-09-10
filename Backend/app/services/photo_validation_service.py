@@ -13,38 +13,31 @@ tuning pass once real device photos go through Phase 4/5 integration.
 """
 
 import io
-import math
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pillow_heif
 from mediapipe import Image as MPImage
 from mediapipe import ImageFormat
 from mediapipe.tasks.python import BaseOptions
-from mediapipe.tasks.python.vision import (
-    FaceDetector,
-    FaceDetectorOptions,
-    FaceLandmarker,
-    FaceLandmarkerOptions,
-    RunningMode,
-)
+from mediapipe.tasks.python.vision import FaceDetector, FaceDetectorOptions
 from mediapipe.tasks.python.vision.face_detector import FaceDetectorResult
 from PIL import Image, UnidentifiedImageError
+
+from app.services.face_identity_service import (
+    IDENTITY_COSINE_DISTANCE_THRESHOLD as IDENTITY_MISMATCH_THRESHOLD,
+)
+from app.services.face_identity_service import (
+    IdentityCheckResult,
+    check_photo_set_identity as _check_photo_set_identity_impl,
+)
 
 pillow_heif.register_heif_opener()
 
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
 _FACE_MODEL_PATH = _BASE_DIR / "var" / "models" / "blaze_face_short_range.tflite"
-# Same model file facial_measurement_service.py uses for the real analysis
-# pipeline -- loaded again here (a second, independent FaceLandmarker
-# instance) rather than importing that module's loader, to keep this
-# module's own "pure, no DB dependency" promise and its existing
-# one-directional coupling (facial_measurement_service imports FROM this
-# module, never the reverse) intact.
-_LANDMARKER_MODEL_PATH = _BASE_DIR / "var" / "models" / "face_landmarker.task"
 
 CHECK_NAMES: tuple[str, ...] = (
     "file_readable",
@@ -54,7 +47,6 @@ CHECK_NAMES: tuple[str, ...] = (
     "frame_proportion",
     "occlusion",
     "pose_match",
-    "identity_match",
 )
 
 MIN_SHORTEST_SIDE_PX = 640
@@ -281,3 +273,14 @@ def _check_pose_match(detection: object, angle_id: str) -> CheckResult:
         False,
         f"This doesn't look like a {expected_label.lower()} photo. Upload a photo matching this specific angle.",
     )
+
+
+# --- Cross-photo identity (set-level, once all angles passed) ---------------
+# ArcFace embeddings live in face_identity_service.py. Re-exported names
+# (IDENTITY_MISMATCH_THRESHOLD, IdentityCheckResult) keep existing imports working.
+
+
+def check_photo_set_identity(photos: dict[str, bytes]) -> IdentityCheckResult:
+    """Delegates to ArcFace embedding comparison -- see face_identity_service."""
+    labels = {angle_id: angle.label.lower() for angle_id, angle in REQUIRED_ANGLES_BY_ID.items()}
+    return _check_photo_set_identity_impl(photos, angle_labels=labels)
