@@ -42,6 +42,12 @@ class FacialAnalysisResult(Base):
     # draft + recommendation ideas) + a closing-recommendations draft.
     # Null until status="completed".
     narrative_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Milestone 2 (FR-018): the 5 ASSESSMENT_CATEGORIES from
+    # facial_assessment_service.py (dimorphism/prototypicality/proportions/
+    # symmetry/face_shape). Nullable -- unlike `measurements`, a row created
+    # before this column existed has no backfill and should read as "not
+    # yet computed", not a fabricated empty-but-required blob.
+    facial_assessments: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

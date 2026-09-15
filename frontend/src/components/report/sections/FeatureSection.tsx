@@ -1,0 +1,138 @@
+"use client"
+
+import { motion } from "motion/react"
+
+import { BeforeAfterBlock } from "../ui/BeforeAfterBlock"
+import { FeatureMetricsBlock } from "../ui/FeatureMetricsBlock"
+import { HairLossScale } from "../ui/HairLossScale"
+import { meridian } from "@/lib/report/meridianTokens"
+import { humanizeMetricKey } from "@/lib/report/metricLabels"
+import { FEATURE_LABELS, featureAnchorId } from "@/lib/report/reportFeatures"
+import type { HairLoss, ReportFeatureSection } from "@/lib/reports/reportApi"
+
+export function FeatureSection({
+  reportId,
+  feature,
+  data,
+  visualStatus,
+  imageUrl,
+  animationDelay,
+  hairLoss = null,
+}: {
+  reportId: string
+  feature: string
+  data: ReportFeatureSection
+  visualStatus: string
+  imageUrl: string | undefined
+  animationDelay: number
+  /** report_design_spec.md v3.0 §13.3 -- only ever passed for the "hair" feature; null elsewhere or when not assessable. */
+  hairLoss?: HairLoss | null
+}) {
+  const label = FEATURE_LABELS[feature]
+  const labelLower = label.toLowerCase()
+
+  return (
+    <motion.div
+      id={featureAnchorId(feature)}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: animationDelay, ease: "easeOut" }}
+      className="scroll-mt-8 space-y-5 border-b border-border/60 pb-10 last:border-b-0"
+    >
+      <header className="space-y-1.5">
+        <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-[1.75rem]">
+          Summary of your{" "}
+          <span style={{ color: meridian.accent.secondary }}>{labelLower}</span>
+        </h2>
+        {data.summary_callout ? (
+          <p className="max-w-3xl text-sm leading-relaxed" style={{ color: meridian.ink.muted }}>
+            {data.summary_callout}
+          </p>
+        ) : (
+          <p className="max-w-3xl text-sm leading-relaxed" style={{ color: meridian.ink.muted }}>
+            {data.narrative.slice(0, 160)}
+            {data.narrative.length > 160 ? "…" : ""}
+          </p>
+        )}
+      </header>
+
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- authenticated blob URL, next/image can't proxy this
+        <img
+          src={imageUrl}
+          alt={`${label} detail from your uploaded photo`}
+          className="max-h-40 w-auto rounded-lg object-cover"
+        />
+      ) : null}
+
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold tracking-tight" style={{ color: meridian.ink.primary }}>
+          Summary of your {labelLower}
+        </h3>
+        <FeatureMetricsBlock measurement={data.measurement} />
+      </div>
+
+      {Object.keys(data.attributes).length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {Object.entries(data.attributes).map(([key, value]) => (
+            <span
+              key={key}
+              className="rounded-full px-2.5 py-1 text-xs"
+              style={{ backgroundColor: meridian.surface.recessed, color: meridian.ink.primary }}
+            >
+              <span style={{ color: meridian.ink.muted }}>{humanizeMetricKey(key)}:</span> {value}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="space-y-2 text-sm leading-relaxed" style={{ color: meridian.ink.muted }}>
+        <p>{data.narrative}</p>
+        {data.strengths ? (
+          <p>
+            <span className="font-medium" style={{ color: meridian.ink.primary }}>
+              Strengths:{" "}
+            </span>
+            {data.strengths}
+          </p>
+        ) : null}
+        {data.areas_of_note ? (
+          <p>
+            <span className="font-medium" style={{ color: meridian.ink.primary }}>
+              Areas of note:{" "}
+            </span>
+            {data.areas_of_note}
+          </p>
+        ) : null}
+      </div>
+
+      {hairLoss ? (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold tracking-tight" style={{ color: meridian.ink.primary }}>
+            Hair Loss
+          </h3>
+          <HairLossScale stage={hairLoss.stage} label={hairLoss.label} />
+        </div>
+      ) : null}
+
+      {data.projected_potential.length > 0 ? (
+        <ul className="space-y-1 pl-1 text-sm" style={{ color: meridian.ink.muted }}>
+          {data.projected_potential.map((idea) => (
+            <li key={idea} className="flex gap-2">
+              <span style={{ color: meridian.accent.primary }}>•</span>
+              <span>{idea}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <BeforeAfterBlock
+        reportId={reportId}
+        feature={feature}
+        featureLabel={label}
+        visualStatus={visualStatus}
+        beforeImageUrl={imageUrl}
+      />
+    </motion.div>
+  )
+}

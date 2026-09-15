@@ -97,6 +97,56 @@ class MeasurementResult:
         return {"available": self.available, "metrics": self.metrics, "note": self.note}
 
 
+@dataclass(frozen=True)
+class LandmarkContext:
+    """The MediaPipe Face Landmarker output plus the handful of face-level
+    reference distances every per-feature formula in this module builds on
+    -- factored out of extract_measurements (Milestone 2, FR-018) so
+    facial_assessment_service.py's new composite indices (dimorphism,
+    prototypicality, proportions, symmetry, face shape) can reuse the same
+    detection pass instead of re-running the landmarker a second time per
+    analysis."""
+
+    landmarks: list[Any]
+    inter_ocular: float
+    face_width: float
+    face_height: float
+    scale: float  # inter_ocular, floored away from zero -- the shared per-feature ratio denominator
+    rgb_array: np.ndarray
+
+
+def get_landmark_context(photos: dict[str, bytes]) -> LandmarkContext | None:
+    """Runs the landmarker once on the front photo. Returns None when no
+    front photo is uploaded or no face is detected -- every caller
+    (extract_measurements below, and facial_assessment_service.py's
+    extract_facial_assessments) treats None the same way: everything it
+    would have computed becomes unavailable, never a fabricated value."""
+    front_bytes = photos.get("front")
+    if front_bytes is None:
+        return None
+
+    image = Image.open(io.BytesIO(front_bytes)).convert("RGB")
+    rgb_array = np.asarray(image, dtype=np.uint8)
+    mp_image = MPImage(image_format=ImageFormat.SRGB, data=rgb_array)
+    result = _get_landmarker().detect(mp_image)
+    if not result.face_landmarks:
+        return None
+
+    landmarks = result.face_landmarks[0]
+    inter_ocular = _distance(landmarks, _LEFT_EYE_INNER, _RIGHT_EYE_INNER)
+    face_width = _distance(landmarks, _FACE_LEFT, _FACE_RIGHT)
+    face_height = _distance(landmarks, _FACE_TOP, _CHIN)
+    scale = inter_ocular if inter_ocular > 0 else 1e-6
+    return LandmarkContext(
+        landmarks=landmarks,
+        inter_ocular=inter_ocular,
+        face_width=face_width,
+        face_height=face_height,
+        scale=scale,
+        rgb_array=rgb_array,
+    )
+
+
 @lru_cache
 def _get_landmarker() -> FaceLandmarker:
     base_options = BaseOptions(model_asset_path=str(_LANDMARKER_MODEL_PATH))
@@ -127,37 +177,43 @@ def extract_measurements(photos: dict[str, bytes]) -> dict[str, MeasurementResul
     available are used by Ears -- see this module's docstring for why).
     Returns a dict keyed by every entry in ANALYSIS_FEATURES -- always all
     11 keys, mirroring photo_validation_service.validate_photo's "always
-    report everything" convention."""
-    front_bytes = photos.get("front")
-    if front_bytes is None:
-        unavailable = MeasurementResult(False, note="No front-angle photo available.")
+    report everything" convention.
+
+    Runs its own get_landmark_context() detection pass. A caller that also
+    needs facial_assessment_service.py's composite indices from the same
+    photos should call get_landmark_context() once itself and pass the
+    result to measurements_from_context() below and to
+    facial_assessment_service.extract_facial_assessments(), instead of
+    calling this function separately -- see
+    facial_assessment_service.extract_measurements_and_assessments(), the
+    single-pass combinator analysis_service.py actually uses."""
+    context = get_landmark_context(photos)
+    return measurements_from_context(context, photos)
+
+
+def measurements_from_context(
+    context: LandmarkContext | None, photos: dict[str, bytes]
+) -> dict[str, MeasurementResult]:
+    """The body of extract_measurements(), taking an already-computed (or
+    None) LandmarkContext instead of running detection itself -- the piece
+    that actually makes single-pass sharing with facial_assessment_service.py
+    possible."""
+    if context is None:
+        note = "No front-angle photo available." if photos.get("front") is None else "No face landmarks detected."
+        unavailable = MeasurementResult(False, note=note)
         return {feature: unavailable for feature in ANALYSIS_FEATURES}
 
-    image = Image.open(io.BytesIO(front_bytes)).convert("RGB")
-    rgb_array = np.asarray(image, dtype=np.uint8)
-    mp_image = MPImage(image_format=ImageFormat.SRGB, data=rgb_array)
-    result = _get_landmarker().detect(mp_image)
-
-    if not result.face_landmarks:
-        unavailable = MeasurementResult(False, note="No face landmarks detected.")
-        return {feature: unavailable for feature in ANALYSIS_FEATURES}
-
-    landmarks = result.face_landmarks[0]
-
-    inter_ocular = _distance(landmarks, _LEFT_EYE_INNER, _RIGHT_EYE_INNER)
-    face_width = _distance(landmarks, _FACE_LEFT, _FACE_RIGHT)
-    face_height = _distance(landmarks, _FACE_TOP, _CHIN)
-    scale = inter_ocular if inter_ocular > 0 else 1e-6
+    landmarks, scale = context.landmarks, context.scale
 
     measurements: dict[str, MeasurementResult] = {
         "eyebrows": _measure_eyebrows(landmarks, scale),
         "eyes": _measure_eyes(landmarks, scale),
         "nose": _measure_nose(landmarks, scale),
-        "cheeks": _measure_cheeks(landmarks, face_width),
-        "jaw": _measure_jaw(landmarks, face_width),
+        "cheeks": _measure_cheeks(landmarks, context.face_width),
+        "jaw": _measure_jaw(landmarks, context.face_width),
         "lips": _measure_lips(landmarks, scale),
-        "chin": _measure_chin(landmarks, face_height),
-        "skin": _measure_skin(rgb_array, landmarks),
+        "chin": _measure_chin(landmarks, context.face_height),
+        "skin": _measure_skin(context.rgb_array, landmarks),
         "ears": _measure_ears(photos),
         "hair": MeasurementResult(
             False, note="No dedicated CV geometry; covered by the AI's visual read of the photos."
