@@ -342,6 +342,48 @@ export async function authenticatedBlobRequest(path: string): Promise<Blob> {
   return toBlobResult(response)
 }
 
+/**
+ * Same 401-refresh-retry machinery as authenticatedRequest, but returns the
+ * raw Response on success instead of parsing a JSON body -- for a streaming
+ * endpoint (chat) where the caller reads the body incrementally via
+ * `response.body.getReader()`. Only touches the body itself on failure
+ * (via toResult, for a normal JSON error payload); a successful streaming
+ * response is handed back untouched so the caller's reader gets every
+ * chunk as the server sends it.
+ */
+export async function authenticatedStreamRequest(path: string, body?: unknown): Promise<Response> {
+  const buildInit = (): RequestInit => {
+    const { accessToken } = useAuthStore.getState()
+    return {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    }
+  }
+
+  let response = await rawFetch(path, buildInit())
+
+  if (response.status === 401) {
+    try {
+      await refreshSession()
+    } catch (err) {
+      if (isInvalidRefreshSessionError(err)) {
+        return toResult<Response>(response)
+      }
+      throw err
+    }
+    response = await rawFetch(path, buildInit())
+  }
+
+  if (!response.ok) {
+    return toResult<Response>(response)
+  }
+  return response
+}
+
 export async function checkBackendHealth(): Promise<{ status: string }> {
   const response = await rawFetch("/health", { method: "GET" })
   return toResult<{ status: string }>(response)
