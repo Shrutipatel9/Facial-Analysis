@@ -7,12 +7,26 @@ engine from Settings at import time. Also pins EMAIL_PROVIDER=console
 regardless of the developer's local .env (which may have EMAIL_PROVIDER=smtp
 for real local testing) -- tests must never depend on real SMTP credentials
 existing, and use the email_sender fixture below to intercept sends anyway.
+
+Same reasoning applies to IMAGE_GEN_API_KEY (BR-006: real image-gen API
+calls must never run in automated tests): the ai-visuals/report-visual
+integration tests rely on generation failing *fast* (a missing key short-
+circuits in GeminiImageGenerationClient.__init__ with no network call) to
+assert on settlement within a few seconds -- they were never mocking the
+Gemini client boundary directly. Before this override existed, a developer
+who added a real key to their local .env (e.g. to manually verify AI
+Visuals in the browser) would silently make the whole suite start issuing
+real, billed Gemini requests the moment they next ran `pytest`, discovered
+only via these two tests timing out against the live API's actual latency.
 """
 
+import json
 import os
+from types import SimpleNamespace
 
 os.environ["DATABASE_URL"] = "postgresql+asyncpg://facial_analysis:facial_analysis@localhost:5433/facial_analysis_test"
 os.environ["EMAIL_PROVIDER"] = "console"
+os.environ["IMAGE_GEN_API_KEY"] = ""
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:3000")
 # Regardless of the developer's local .env (same posture as EMAIL_PROVIDER
 # above) -- "database" is also the real default now, so tests exercise the
@@ -31,6 +45,7 @@ import app.models  # noqa: F401  -- registers models on Base.metadata
 from app.core.rate_limit import limiter
 from app.db.base import Base
 from app.db.session import async_session_factory, engine
+from app.services.facial_measurement_service import ANALYSIS_FEATURES
 
 # Cookie-authenticated endpoints require these (app/core/csrf.py).
 _CSRF_HEADERS = {
@@ -110,4 +125,85 @@ class RecordingEmailSender:
 def email_sender(monkeypatch) -> RecordingEmailSender:
     recorder = RecordingEmailSender()
     monkeypatch.setattr("app.services.otp_service.get_email_sender", lambda: recorder)
+    return recorder
+
+
+def _fake_completion_response() -> SimpleNamespace:
+    """A minimal fake OpenAI-shaped chat-completion response carrying a
+    valid narrative JSON body -- shared by every test that needs a
+    successful ai_narrative_service.generate_narrative() call without a
+    real DeepSeek/OpenAI request."""
+    content = json.dumps(
+        {
+            "features": {
+                feature: {
+                    "narrative": f"Narrative for {feature}.",
+                    "summary_callout": feature,
+                    "strengths": "Looks natural.",
+                    "areas_of_note": "None notable.",
+                    "recommendation_ideas": ["Use a daily moisturizer."],
+                }
+                for feature in ANALYSIS_FEATURES
+            },
+            "closing_recommendations": "Consider seeing a dermatologist for a full assessment.",
+        }
+    )
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+
+_FAKE_STREAM_CHUNKS: tuple[str, ...] = (
+    "Based on your report, ",
+    "here's a **general tip**: ",
+    "stay consistent with your routine.",
+)
+
+
+class _FakeStream:
+    """A minimal fake of openai's AsyncStream[ChatCompletionChunk] -- just
+    enough to support `async for chunk in stream: chunk.choices[0].delta.content`,
+    matching chat_service.stream_reply's exact consumption shape."""
+
+    def __init__(self, pieces: tuple[str, ...]) -> None:
+        self._pieces = pieces
+
+    def __aiter__(self):
+        return self._generate()
+
+    async def _generate(self):
+        for piece in self._pieces:
+            yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=piece))])
+
+
+class AiRecorder:
+    """Call counter for the fake AI client below -- lets a test assert a
+    refused chat question (chat_refusal_keywords.is_medical_question)
+    triggered zero provider calls (BR-006), not just that the response
+    text looked right."""
+
+    def __init__(self) -> None:
+        self.call_count = 0
+
+
+@pytest.fixture
+def ai_recorder(monkeypatch) -> AiRecorder:
+    """Monkeypatches ai_narrative_service.get_ai_client() to a fake client
+    used by any integration test that needs a completed analysis
+    (report_flow, ai_visuals_flow, chat_flow, ...) without a real AI
+    provider call. A module-level conftest fixture (not defined per test
+    file) since it's shared by more than one -- pytest resolves it by name
+    with no import needed.
+
+    `create()` branches on `stream=True` (chat_service.stream_reply's call
+    shape) vs the default non-streaming shape (ai_narrative_service.
+    generate_narrative's call shape) so one fixture serves both callers."""
+    recorder = AiRecorder()
+
+    async def create(**kwargs):
+        recorder.call_count += 1
+        if kwargs.get("stream"):
+            return _FakeStream(_FAKE_STREAM_CHUNKS)
+        return _fake_completion_response()
+
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr("app.services.ai_narrative_service.get_ai_client", lambda: fake_client)
     return recorder

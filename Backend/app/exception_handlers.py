@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.exceptions import (
     AccountLockedError,
+    AiVisualNotFoundError,
     AlreadyPaidError,
     AnalysisAlreadyExistsError,
     AnalysisNotCompletedError,
@@ -38,6 +39,7 @@ from app.exceptions import (
     RefreshTokenReuseError,
     ReportImageNotFoundError,
     ReportNotFoundError,
+    ReportVisualNotFoundError,
     ResetTokenInvalidError,
     SamePasswordError,
     UnauthorizedError,
@@ -268,7 +270,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content=_error(
-                "ANALYSIS_NOT_COMPLETED", "Your facial analysis must complete before a report can be generated."
+                "ANALYSIS_NOT_COMPLETED", "Your facial analysis must complete before this content is available."
             ),
         )
 
@@ -284,6 +286,20 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content=_error("REPORT_IMAGE_NOT_FOUND", "No image is available for this feature."),
+        )
+
+    @app.exception_handler(ReportVisualNotFoundError)
+    async def _report_visual_not_found(request: Request, exc: ReportVisualNotFoundError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content=_error("REPORT_VISUAL_NOT_FOUND", "No AI-generated visual is available for this feature yet."),
+        )
+
+    @app.exception_handler(AiVisualNotFoundError)
+    async def _ai_visual_not_found(request: Request, exc: AiVisualNotFoundError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content=_error("AI_VISUAL_NOT_FOUND", "No AI-generated visual is available yet."),
         )
 
     @app.exception_handler(AlreadyPaidError)

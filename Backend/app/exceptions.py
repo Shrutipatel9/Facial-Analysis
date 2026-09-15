@@ -222,6 +222,23 @@ class ReportImageNotFoundError(DomainError):
     report to API consumers, even though both are 404s."""
 
 
+class ReportVisualNotFoundError(DomainError):
+    """GET /reports/{id}/features/{feature}/visual (FR-022, Milestone 2)
+    for a feature whose ReportFeatureVisual row isn't `status="generated"`
+    yet (pending/generating/failed/not_attempted) or an unknown feature
+    name -- same anti-enumeration posture as ReportImageNotFoundError,
+    kept as its own type so a missing/not-yet-ready AI visual doesn't read
+    as a missing crop image or a missing report."""
+
+
+class AiVisualNotFoundError(DomainError):
+    """GET /ai-visuals/{kind}/{variation_id}/image (FR-020, Milestone 2
+    Phase 11) for a variation that doesn't exist, belongs to another user,
+    is for a different kind, or isn't `status="generated"` yet -- all
+    collapse to this one 404, same anti-enumeration posture as
+    ReportVisualNotFoundError."""
+
+
 class AlreadyPaidError(DomainError):
     """POST /payments/checkout attempted while the user already has a
     status="succeeded" Payment row -- no second charge; one payment covers

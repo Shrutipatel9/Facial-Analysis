@@ -90,6 +90,28 @@ class Settings(BaseSettings):
     ai_model: str = Field(default="deepseek-v4-flash-vision-exp", alias="AI_MODEL")
     ai_request_timeout_seconds: int = Field(default=120, alias="AI_REQUEST_TIMEOUT_SECONDS")
 
+    # --- AI image generation (FR-022, Milestone 2) ---
+    # ASM-011: vendor is Google Gemini 2.5 Flash Image, user-confirmed
+    # 2026-09-11. Unlike ai_* above, Gemini's image-generation call shape
+    # isn't OpenAI-Chat-Completions-compatible, so this can't reuse that
+    # trick -- app/services/image_generation_service.py has a real
+    # ImageGenerationClient ABC instead, with `image_gen_provider` as its
+    # vendor switch for a future swap. image_gen_api_key is intentionally
+    # optional here, same posture as ai_api_key -- most local dev/testing
+    # never exercises this module; image_generation_service.py raises a
+    # clear error the first time a call is actually attempted without one.
+    image_gen_provider: str = Field(default="gemini", alias="IMAGE_GEN_PROVIDER")
+    image_gen_api_key: str | None = Field(default=None, alias="IMAGE_GEN_API_KEY")
+    image_gen_model: str = Field(default="gemini-2.5-flash-image", alias="IMAGE_GEN_MODEL")
+    image_gen_request_timeout_seconds: int = Field(default=60, alias="IMAGE_GEN_REQUEST_TIMEOUT_SECONDS")
+    # BR-006 cost control: retries only cover transient failures (timeout/
+    # rate-limited), never a content-policy refusal -- see
+    # image_generation_service.ImageGenerationError.
+    image_gen_max_retries: int = Field(default=2, alias="IMAGE_GEN_MAX_RETRIES")
+    # Bounds how many of a report's 11 feature visuals generate concurrently
+    # -- caps burst spend/rate-limit exposure, not a correctness concern.
+    image_gen_max_concurrency: int = Field(default=3, alias="IMAGE_GEN_MAX_CONCURRENCY")
+
     # --- Payment (FR-015, FR-016, BR-001) ---
     # stripe_secret_key is intentionally optional here, same posture as
     # ai_api_key -- most local dev/testing never exercises a real Stripe
