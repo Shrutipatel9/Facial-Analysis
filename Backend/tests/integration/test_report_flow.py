@@ -1,3 +1,4 @@
+import asyncio
 import re
 import uuid
 from pathlib import Path
@@ -5,13 +6,20 @@ from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.facial_analysis_result import FacialAnalysisResult
 from app.models.payment import Payment
+from app.models.report import Report
+from app.models.report_feature_visual import ReportFeatureVisual
 from app.models.report_pdf_blob import ReportPdfBlob
 from app.services.analysis_service import run_analysis_pipeline
+from app.services.facial_assessment_service import ASSESSMENT_CATEGORIES
 from app.services.facial_measurement_service import ANALYSIS_FEATURES
 from app.services.photo_validation_service import REQUIRED_ANGLES
+from app.services.report_pdf_service import _FRONT_MATTER_PAGE_COUNT
+from tests.conftest import _fake_completion_response
 from tests.integration.test_auth_flow import _register_and_verify
 from tests.integration.test_questionnaire_flow import _full_valid_answers
 
@@ -62,34 +70,11 @@ async def _complete_photos(client: AsyncClient, headers: dict) -> None:
         assert resp.json()["validation_status"] == "passed", resp.text
 
 
-def _fake_completion_response() -> SimpleNamespace:
-    import json
-
-    content = json.dumps(
-        {
-            "features": {
-                feature: {
-                    "narrative": f"Narrative for {feature}.",
-                    "summary_callout": feature,
-                    "strengths": "Looks natural.",
-                    "areas_of_note": "None notable.",
-                    "recommendation_ideas": ["Use a daily moisturizer."],
-                }
-                for feature in ANALYSIS_FEATURES
-            },
-            "closing_recommendations": "Consider seeing a dermatologist for a full assessment.",
-        }
-    )
-    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
-
-
-@pytest.fixture
-def ai_recorder(monkeypatch):
-    async def create(**kwargs):
-        return _fake_completion_response()
-
-    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
-    monkeypatch.setattr("app.services.ai_narrative_service.get_ai_client", lambda: fake_client)
+# _fake_completion_response / ai_recorder moved to tests/conftest.py once a
+# second file (test_ai_visuals_flow.py) needed the exact same fake AI
+# client -- a conftest fixture is resolved by name project-wide with no
+# import, avoiding the ruff F811 churn re-importing a fixture into another
+# test module by name would otherwise cause.
 
 
 async def _mark_paid(db: AsyncSession, user_id: uuid.UUID) -> None:
@@ -290,6 +275,75 @@ class TestReportPdf:
         resp = await client.get(f"/reports/{uuid.uuid4()}/pdf", headers=headers)
         assert resp.status_code == 404
 
+    async def test_stale_cache_is_re_rendered_in_place(
+        self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
+    ):
+        """Regression test: a feature visual completing *after* the cached
+        PDF was rendered must trigger a re-render (see
+        report_service._has_visual_newer_than) that UPDATEs the existing
+        ReportPdfBlob row rather than INSERTing a second row under the same
+        `f"{report_id}.pdf"` primary key -- the naive fix originally raised
+        a UniqueViolationError on every stale-cache re-render."""
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-pdf-stale@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+        report_id = (await client.post("/reports", headers=headers)).json()["id"]
+
+        first = await client.get(f"/reports/{report_id}/pdf", headers=headers)
+        assert first.status_code == 200
+        first_blob = await db.get(ReportPdfBlob, f"{report_id}.pdf")
+        assert first_blob is not None
+
+        # Simulate a feature visual completing after the cached render.
+        result = await db.execute(
+            select(ReportFeatureVisual).where(ReportFeatureVisual.report_id == report_id).limit(1)
+        )
+        visual = result.scalar_one()
+        visual.status = "generated"
+        visual.content = _load("pass_all.jpg")  # real decodable image -- render_pdf feeds it through PIL
+        visual.content_type = "image/jpeg"
+        await db.commit()
+
+        second = await client.get(f"/reports/{report_id}/pdf", headers=headers)
+        assert second.status_code == 200
+        assert second.content.startswith(b"%PDF")
+
+        from sqlalchemy import func
+
+        count = await db.execute(select(func.count()).select_from(ReportPdfBlob))
+        assert count.scalar_one() == 1
+
+    async def test_pdf_reference_reset_reuses_existing_blob_row(
+        self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
+    ):
+        """Regression test: _sync_sections resets Report.pdf_reference to
+        None to force a narrative-driven re-render (report_service.py's
+        module docstring) without deleting the now-orphaned ReportPdfBlob
+        row that still sits under the same deterministic `f"{report_id}.pdf"`
+        id. A subsequent download must still update that row in place, not
+        blindly INSERT under the same already-occupied primary key."""
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-pdf-ref-reset@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+        report_id = (await client.post("/reports", headers=headers)).json()["id"]
+
+        first = await client.get(f"/reports/{report_id}/pdf", headers=headers)
+        assert first.status_code == 200
+
+        # Simulate _sync_sections' narrative-driven invalidation: the
+        # pointer is cleared, but the blob row itself is untouched.
+        report = await db.get(Report, uuid.UUID(report_id))
+        assert report is not None
+        report.pdf_reference = None
+        await db.commit()
+
+        second = await client.get(f"/reports/{report_id}/pdf", headers=headers)
+        assert second.status_code == 200
+        assert second.content.startswith(b"%PDF")
+
+        from sqlalchemy import func
+
+        count = await db.execute(select(func.count()).select_from(ReportPdfBlob))
+        assert count.scalar_one() == 1
+
     async def test_pdf_is_not_duplicated(
         self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
     ):
@@ -307,7 +361,11 @@ class TestReportPdf:
         assert resp.status_code == 200
 
         page_objects = re.findall(rb"/Type\s*/Page[^s]", resp.content)
-        expected_pages = 5 + len(ANALYSIS_FEATURES) + 1 + 1  # front matter + features + recommendations + appendix
+        # front matter (imported from report_pdf_service.py so this test
+        # actually stays in sync when front matter grows, rather than
+        # silently drifting the way a hardcoded number did before) +
+        # features + recommendations + appendix
+        expected_pages = _FRONT_MATTER_PAGE_COUNT + len(ANALYSIS_FEATURES) + 1 + 1
         assert len(page_objects) == expected_pages
 
         count_match = re.search(rb"/Count\s+(\d+)", resp.content)
@@ -358,5 +416,214 @@ class TestReportFeatureImage:
     async def test_unknown_report_is_404(self, client: AsyncClient, email_sender):
         headers, _ = await _auth_headers_and_user_id(client, email_sender, "rp-img-404@example.com")
         resp = await client.get(f"/reports/{uuid.uuid4()}/features/eyes/image", headers=headers)
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "REPORT_NOT_FOUND"
+
+
+class TestFacialAssessmentsInReport:
+    """Milestone 2 (FR-018) -- the fields report_assembly_service.py adds
+    to `sections`, surfaced through GET /reports/{id}."""
+
+    async def test_full_content_includes_all_new_fields(
+        self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
+    ):
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-assess-ok@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+        resp = await client.post("/reports", headers=headers)
+        assert resp.status_code == 200, resp.text
+        full = resp.json()["full"]
+
+        assert set(full["facial_assessments"].keys()) == set(ASSESSMENT_CATEGORIES)
+        assert set(full["feature_scores"].keys()) == set(ANALYSIS_FEATURES)
+        assert "overall_score" in full
+        assert set(full["harmony_chart"].keys()) == {
+            "harmony",
+            "symmetry",
+            "smoothness",
+            "jawline",
+            "skin",
+            "volume",
+        }
+        # A real analyzed photo (pass_all.jpg) should produce available
+        # assessments, not an all-unavailable placeholder.
+        assert full["facial_assessments"]["dimorphism"]["available"] is True
+
+    async def test_analysis_duration_is_a_real_positive_elapsed_time(
+        self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
+    ):
+        """Dashboard consolidation -- FacialAnalysisResult.completed_at -
+        created_at, not a fabricated value. A completed analysis always has
+        both timestamps set, so this must be a real positive number, not
+        null, once run_analysis_pipeline has actually finished."""
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-duration@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+        resp = await client.post("/reports", headers=headers)
+        assert resp.status_code == 200, resp.text
+        full = resp.json()["full"]
+
+        assert full["analysis_duration_seconds"] is not None
+        assert full["analysis_duration_seconds"] >= 0
+
+    async def test_every_feature_section_has_a_visual_status(
+        self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
+    ):
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-assess-visual@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+        resp = await client.post("/reports", headers=headers)
+        features = resp.json()["full"]["features"]
+        for feature in ANALYSIS_FEATURES:
+            assert features[feature]["visual_status"] in (
+                "not_attempted",
+                "pending",
+                "generating",
+                "generated",
+                "failed",
+            )
+
+
+class TestLegacyReportRegression:
+    """A report assembled from a FacialAnalysisResult with
+    facial_assessments=None (i.e. created before this migration existed)
+    must still return a fully-shaped, all-unavailable Milestone 2 section
+    -- additive-only, per milestone2_phase_plan.md's Phase 10 acceptance
+    criterion -- never a missing key or a 500."""
+
+    async def test_null_facial_assessments_still_returns_valid_shape(
+        self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
+    ):
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-legacy@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+
+        # Simulate a pre-Milestone-2 row directly -- run_analysis_pipeline
+        # always populates facial_assessments now, so force it back to
+        # None to exercise the legacy path.
+        result = await db.execute(select_analysis_result(user_id))
+        analysis = result.scalar_one()
+        analysis.facial_assessments = None
+        await db.commit()
+
+        resp = await client.post("/reports", headers=headers)
+        assert resp.status_code == 200, resp.text
+        full = resp.json()["full"]
+        assert set(full["facial_assessments"].keys()) == set(ASSESSMENT_CATEGORIES)
+        assert all(not entry["available"] for entry in full["facial_assessments"].values())
+
+    async def test_zero_visual_rows_reports_not_attempted_for_every_feature(
+        self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
+    ):
+        """Simulates a report created before FR-022 existed (no
+        ReportFeatureVisual rows at all) -- GET /reports/{id}/visuals/status
+        must still return all 11 keys, never a partial dict."""
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-legacy-visuals@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+        report_id = (await client.post("/reports", headers=headers)).json()["id"]
+
+        # Delete the rows report creation just inserted, simulating a
+        # report that predates FR-022.
+        result = await db.execute(select_report_visuals(uuid.UUID(report_id)))
+        for row in result.scalars().all():
+            await db.delete(row)
+        await db.commit()
+
+        resp = await client.get(f"/reports/{report_id}/visuals/status", headers=headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body.keys()) == set(ANALYSIS_FEATURES)
+        assert all(status == "not_attempted" for status in body.values())
+
+
+def select_analysis_result(user_id: uuid.UUID):
+    return (
+        select(FacialAnalysisResult)
+        .where(FacialAnalysisResult.user_id == user_id)
+        .order_by(FacialAnalysisResult.created_at.desc())
+        .limit(1)
+    )
+
+
+def select_report_visuals(report_id: uuid.UUID):
+    return select(ReportFeatureVisual).where(ReportFeatureVisual.report_id == str(report_id))
+
+
+_TERMINAL_VISUAL_STATUSES = {"generated", "failed"}
+
+
+async def _wait_for_all_visuals_terminal(db: AsyncSession, report_id: uuid.UUID, timeout: float = 3.0) -> None:
+    """Polls until every ReportFeatureVisual row for this report has left
+    pending/generating, instead of a fixed sleep -- a fixed-duration sleep
+    races the background generation task under system load (11 features
+    each need their own async db.commit(), and a slow test run can miss a
+    200ms window), which made test_generation_is_triggered_exactly_once_per_report
+    flaky."""
+    deadline = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < deadline:
+        # populate_existing: rows for this report_id are already in this
+        # session's identity map from the previous poll iteration -- a
+        # plain select() would keep returning those cached (stale) ORM
+        # instances instead of refreshing them from the background task's
+        # committed writes.
+        result = await db.execute(select_report_visuals(report_id).execution_options(populate_existing=True))
+        rows = result.scalars().all()
+        if len(rows) == len(ANALYSIS_FEATURES) and all(row.status in _TERMINAL_VISUAL_STATUSES for row in rows):
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"visual generation did not settle within {timeout}s for report {report_id}")
+
+
+class TestReportFeatureVisual:
+    """Milestone 2 (FR-022). No real Gemini key is configured in tests
+    (BR-006 -- real calls never run in CI), so generation always ends in
+    "failed" here; these tests cover the endpoint contract, not real
+    generation quality."""
+
+    async def test_visuals_status_has_all_eleven_features(
+        self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
+    ):
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-visual-status@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+        report_id = (await client.post("/reports", headers=headers)).json()["id"]
+        await asyncio.sleep(0.2)  # let the background generation task settle (fails fast: no API key configured)
+
+        resp = await client.get(f"/reports/{report_id}/visuals/status", headers=headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body.keys()) == set(ANALYSIS_FEATURES)
+
+    async def test_ungenerated_visual_is_404(
+        self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
+    ):
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-visual-404@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+        report_id = (await client.post("/reports", headers=headers)).json()["id"]
+        await asyncio.sleep(0.2)
+
+        resp = await client.get(f"/reports/{report_id}/features/eyes/visual", headers=headers)
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "REPORT_VISUAL_NOT_FOUND"
+
+    async def test_generation_is_triggered_exactly_once_per_report(
+        self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
+    ):
+        """BR-006 cost control: a repeat POST /reports (idempotent,
+        get-or-create) must not re-insert or reset the visual rows."""
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-visual-once@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+        report_id = (await client.post("/reports", headers=headers)).json()["id"]
+        await _wait_for_all_visuals_terminal(db, uuid.UUID(report_id))
+
+        first = await db.execute(select_report_visuals(uuid.UUID(report_id)))
+        first_rows = {row.feature: row.attempt_count for row in first.scalars().all()}
+        assert len(first_rows) == len(ANALYSIS_FEATURES)
+
+        await client.post("/reports", headers=headers)  # repeat, idempotent
+        await asyncio.sleep(0.05)
+
+        second = await db.execute(select_report_visuals(uuid.UUID(report_id)))
+        second_rows = {row.feature: row.attempt_count for row in second.scalars().all()}
+        assert second_rows == first_rows  # unchanged -- no re-trigger, no duplicate rows
+
+    async def test_unknown_report_is_404(self, client: AsyncClient, email_sender):
+        headers, _ = await _auth_headers_and_user_id(client, email_sender, "rp-visual-unknown-report@example.com")
+        resp = await client.get(f"/reports/{uuid.uuid4()}/features/eyes/visual", headers=headers)
         assert resp.status_code == 404
         assert resp.json()["error"]["code"] == "REPORT_NOT_FOUND"

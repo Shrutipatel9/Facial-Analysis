@@ -12,14 +12,94 @@ export interface ReportFeatureSection {
   strengths: string
   areas_of_note: string
   projected_potential: string[]
+  // AI-classified named attributes for this feature (e.g. hair's
+  // hairline/texture/density), matching the depth of the client's own
+  // reference report. Empty for a pre-this-change report or when nothing
+  // was confidently assessable -- never fabricated.
+  attributes: Record<string, string>
   measurement: ReportMeasurement
   has_image: boolean
+  // Milestone 2 (FR-022): "not_attempted" | "pending" | "generating" |
+  // "generated" | "failed" -- see BeforeAfterBlock.
+  visual_status: string
 }
 
 export interface ReportTeaser {
   intro: string
   feature_summaries: Record<string, string>
 }
+
+// Milestone 2 (FR-018) -- one named contributor to an assessment, e.g. one
+// of Dimorphism's top-3 drivers or one of Symmetry's Regional Balance rows.
+export interface AssessmentDriver {
+  feature: string
+  score: number
+  label: string
+  citation: string
+}
+
+// Milestone 2 (FR-018) -- one of the 5 Facial Assessments. Every field is
+// nullable/absent when `available` is false (no face detected, etc.) --
+// never render a fabricated score.
+export interface FacialAssessment {
+  available: boolean
+  score: number | null
+  label: string | null
+  slider_position: number | null
+  drivers: AssessmentDriver[] | null
+  sub_scores: Record<string, AssessmentDriver> | null
+  overlay: Record<string, unknown> | null
+  note: string | null
+}
+
+// Milestone 2 -- one 0-100 score + label per report feature, backs Overall
+// Score / Priority Features to Improve / 2 of the Harmony chart's axes.
+export interface FeatureScore {
+  available: boolean
+  score: number | null
+  label: string | null
+  note: string | null
+  // Short (1-2 word) dimension the score measures, e.g. "Width",
+  // "Projection" -- backs the Priority Features list's "what to improve".
+  driver: string | null
+  // report_design_spec.md v3.0 §13.1/§13.2 -- a short plain-language
+  // phrase for `driver` (e.g. "Wider than typical"), shared by the
+  // Priority Features sub-rows and the Feature Evaluation table's
+  // "Finding" column. Null where no directional/magnitude read applies.
+  finding: string | null
+  // report_template.md v3.0 §3.8 -- a formatted typical/benchmark value
+  // for `driver`, e.g. "~60% of face width". Null where no single
+  // reference value exists -- renders as an empty cell, never fabricated.
+  reference_value: string | null
+}
+
+// report_design_spec.md v3.0 §15 -- a single current-estimate read (never
+// a projection). Absent entirely (not the whole ReportFullContent's
+// `facial_age` key defaulted to some zero-ish shape) whenever the AI
+// narrative call couldn't confidently estimate it.
+export interface FacialAge {
+  estimate: number
+  note: string | null
+}
+
+// report_design_spec.md v3.0 §13.3 -- maps to the Hair page's illustrated
+// 7-stage strip (Normal -> Need Attention -> Extreme).
+export interface HairLoss {
+  stage: number
+  label: string
+}
+
+export const ASSESSMENT_ORDER = ["dimorphism", "prototypicality", "proportions", "symmetry", "face_shape"] as const
+
+export const ASSESSMENT_LABELS: Record<string, string> = {
+  dimorphism: "Dimorphism",
+  prototypicality: "Prototypicality",
+  proportions: "Proportions",
+  symmetry: "Symmetry",
+  face_shape: "Face Shape",
+}
+
+export const HARMONY_AXES = ["harmony", "symmetry", "smoothness", "jawline", "skin", "volume"] as const
 
 export interface ReportFullContent {
   understanding_your_results: string
@@ -31,6 +111,24 @@ export interface ReportFullContent {
     in_clinic: string[]
   }
   closing_recommendations: string
+  // Milestone 2 -- always all 5 ASSESSMENT_ORDER keys, all-unavailable for
+  // a pre-Milestone-2 report.
+  facial_assessments: Record<string, FacialAssessment>
+  // Milestone 2 -- always all 11 report-feature keys.
+  feature_scores: Record<string, FeatureScore>
+  overall_score: number | null
+  // Milestone 2 -- always all 6 HARMONY_AXES keys.
+  harmony_chart: Record<string, number | null>
+  // report_design_spec.md v3.0 §15/§13.3 -- both null whenever the AI
+  // narrative call couldn't confidently estimate them, or for any report
+  // generated before this field existed. Never fabricated/defaulted.
+  facial_age: FacialAge | null
+  hair_loss: HairLoss | null
+  // Dashboard consolidation -- real elapsed CV+AI pipeline time; null
+  // whenever narrative generation is still pending/failed. Never a
+  // fabricated value -- see Backend/app/api/routers/reports.py's
+  // _to_report_out.
+  analysis_duration_seconds: number | null
 }
 
 export interface ReportOut {
@@ -72,4 +170,15 @@ export function downloadPdf(id: string): Promise<Blob> {
  * that feature's `has_image` is true, otherwise this 404s. */
 export function getFeatureImage(reportId: string, feature: string): Promise<Blob> {
   return authenticatedBlobRequest(`/reports/${reportId}/features/${feature}/image`)
+}
+
+/** Milestone 2 (FR-022) AI-generated before/after image -- only call when
+ * that feature's `visual_status` is "generated", otherwise this 404s. */
+export function getFeatureVisual(reportId: string, feature: string): Promise<Blob> {
+  return authenticatedBlobRequest(`/reports/${reportId}/features/${feature}/visual`)
+}
+
+/** Lightweight polling endpoint -- {feature: status} for all 11 features. */
+export function getVisualsStatus(reportId: string): Promise<Record<string, string>> {
+  return authenticatedRequest<Record<string, string>>(`/reports/${reportId}/visuals/status`, { method: "GET" })
 }

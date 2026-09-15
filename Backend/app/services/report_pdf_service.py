@@ -6,16 +6,29 @@ already-assembled `sections` JSON plus its per-feature cropped images
 (see facial_measurement_service.extract_feature_crops); does not re-derive
 or re-fetch anything else.
 
-Page structure (cover, disclaimer, "Understanding Your Report", an Overview
-table, an Overall Summary, one page per feature -- each with a numeric
-Measurements table alongside the written Observations -- consolidated
-Recommendations + Next Steps, and an Appendix) was adopted from a
-client-provided reference report, extended with the Overall Summary page
-and per-feature Measurements table by direct request. Colors
-and the FaceIQ wordmark now match the actual app theme (frontend/src/app/
-globals.css's `:root` tokens, converted from OKLCH to sRGB hex once below)
-and the app's own two-weight wordmark styling (Logo.tsx: "Face" semibold +
-"IQ" black) rather than the reference's own palette/branding.
+Page structure now follows docs/report_template.md v3.0 §2's exact page-
+by-page content map (client-authorized 2026-09-15, superseding the prior
+round's structure): Cover, Disclaimer & Privacy Policy, Introduction
+(intro + Limitations + Contents list, 2-column), Understanding the Results
+(4 fixed numbered principles), "{Subject}'s Protocol" overview (framing
+prose + the fixed 11-feature checklist), Facial Assessments (FR-018 --
+kept as a bonus page; not part of the client reference's own page list,
+but not contradicted by it either), one page per feature (Eyebrows+Eyes
+share a single page, matching report_design_spec.md §9.2's only such
+case), Closing Recommendations (4-part synthesis, 2-column), and a bonus
+Appendix. Per this round's explicitly deferred scope (see the report
+redesign plan), this does NOT attempt: the per-feature named sub-sections
+report_design_spec.md §9.2 lists for every feature (would need restructuring
+ai_narrative_service.py's prompt per-feature, not just reusing existing
+data -- existing narrative/strengths/areas_of_note/recommendation_ideas
+are reused as-is, with headings relabeled toward the spec's sub-section
+names only where a clean 1:1 mapping exists without inventing content),
+profile/annotated/composite photo panels, or the second 11-axis radar
+chart. Colors and the FaceIQ wordmark still match the actual app theme
+(frontend/src/app/globals.css's `:root` tokens, converted from OKLCH to
+sRGB hex once below) and the app's own two-weight wordmark styling
+(Logo.tsx: "Face" semibold + "IQ" black) rather than the reference's own
+palette/branding -- unchanged, only page structure/content moved.
 """
 
 import io
@@ -28,8 +41,8 @@ from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.pdfgen.canvas import Canvas
+from reportlab.platypus import Flowable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from reportlab.platypus import Image as RLImage
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.models.report import Report
 from app.models.user import User
@@ -43,16 +56,69 @@ _INK = colors.HexColor("#14191A")  # --foreground
 _INK_MUTED = colors.HexColor("#5A6668")  # --muted-foreground
 _ACCENT = colors.HexColor("#4E7A82")  # --primary
 _RECESSED = colors.HexColor("#D7E0E2")  # --border
+_CALLOUT_BG = colors.HexColor("#E7EEF0")  # light tint of _ACCENT, for the per-feature Summary callout box
 
 _PAGE_SIZE = LETTER
 _MARGIN = 0.85 * inch
 _CONFIDENTIALITY_NOTE = "Personal and confidential — generated for your individual use."
-# Cover, About, Understanding, Overview, Overall Summary -- always exactly
-# one page each (fixed-length static copy + an 11-row table/short synthesis
-# paragraph that comfortably fits one Letter page), so front-matter page
-# count is a safe compile-time constant rather than something computed at
-# render time.
-_FRONT_MATTER_PAGE_COUNT = 5
+# PDF-only static copy for the Disclaimer & Privacy Policy page --
+# deliberately NOT threaded through report_assembly_service.py/sections or
+# the API schema, since nothing on the frontend needs this text this round
+# (keeps the blast radius of this addition contained to this file).
+# report_template.md v3.0 §4 -- standing, legally-reviewed copy, never
+# AI-generated, never omitted or shortened. Distinct from `_LIMITATIONS`
+# below (what can affect *measurement accuracy* -- now on the Introduction
+# page instead, per §5) -- this is the platform's own standing disclaimer.
+_DISCLAIMER_POLICY = (
+    "This report is an AI-assisted facial appearance analysis, informational and cosmetic in "
+    "nature. It is not a medical diagnosis, clinical assessment, surgical plan, or disease-"
+    "detection tool. Recommendations throughout this report are general and cosmetic, not a "
+    "course of treatment. Numeric scores describe measured facial geometry only — they are never "
+    "an attractiveness or beauty judgment. Any AI-generated Before/After or Potential imagery in "
+    "this report is a simulation, illustrative only, with no guaranteed real-world outcome. Any "
+    "decision about treatment, in-clinic procedures, or prescription products should always be "
+    "made together with a qualified professional, not from this report alone."
+)
+_PRIVACY_POLICY = (
+    "Your uploaded photos and questionnaire answers are used solely to generate this report for "
+    "your own account. We do not sell your photos or personal data, and we do not use them to "
+    "train shared AI models. Supplied images and video are retained for a bounded window (up to "
+    "1 year) for reference purposes; once modified by the platform, an image is stored as a whole, "
+    "not disaggregated into its component edits. Photos and analysis results otherwise remain "
+    "available for as long as your account is active, so you can access your report history; you "
+    "may request deletion at any time. This platform uses cookies and basic analytics to operate "
+    "and improve the service — see the full privacy policy for details."
+)
+# Cover, Disclaimer & Privacy, Introduction, Understanding the Results,
+# "{Subject}'s Protocol" overview, Facial Assessments -- always exactly one
+# page each (fixed-length static copy + a short synthesis paragraph or an
+# 11-row/5-row table that comfortably fits one Letter page), so front-matter
+# page count is a safe compile-time constant rather than something computed
+# at render time. report_template.md v3.0's page map folds the prior
+# round's separate "About This Report" and "Table of Contents" pages into
+# one combined Introduction page, so this drops 8->6.
+# tests/integration/test_report_flow.py's TestReportPdf::test_pdf_is_not_
+# duplicated imports this constant directly (rather than hardcoding its own
+# copy of the number, a real drift this constant already caused once) to
+# assert the rendered page count -- so it self-updates whenever this
+# constant changes. Body pages (features onward) are NOT a similarly safe
+# compile-time assumption -- a feature's AI-generated narrative can
+# overflow onto a second physical page for a long real account even though
+# the test suite's short synthetic fixtures never do -- so their Table of
+# Contents labels are resolved via a two-pass render (_PageMarker /
+# render_pdf's docstring), not arithmetic.
+_FRONT_MATTER_PAGE_COUNT = 6
+
+# Named front-matter page positions (1-indexed), matching render_pdf()'s
+# exact story order below -- used by _introduction_flowables' Contents list
+# so its page-number arithmetic never hardcodes a bare integer. Keep this
+# literally in sync with render_pdf()'s story.extend(...) sequence; there
+# is no automated check for that (see the comment on _FRONT_MATTER_PAGE_COUNT
+# above).
+_PAGE_UNDERSTANDING = 4
+_PAGE_PROTOCOL_OVERVIEW = 5
+_PAGE_FACIAL_ASSESSMENTS = 6
+assert _PAGE_FACIAL_ASSESSMENTS == _FRONT_MATTER_PAGE_COUNT  # the last front-matter page is always this constant
 
 
 def _to_roman(num: int) -> str:
@@ -202,6 +268,15 @@ _FEATURE_LABELS = {
     "ears": "Ears",
 }
 
+# Same wording already established in frontend/src/components/report/
+# sections/ProtocolSection.tsx's TIERS array -- kept identical so a feature's
+# tier reads the same on the PDF and on /report's Protocol section.
+_TIER_LABELS = {
+    "at_home": "At-Home / Lifestyle",
+    "otc_skincare": "OTC / Skincare-Active",
+    "in_clinic": "In-Clinic (Optional)",
+}
+
 
 def _styles() -> dict[str, ParagraphStyle]:
     base = getSampleStyleSheet()
@@ -216,14 +291,38 @@ def _styles() -> dict[str, ParagraphStyle]:
             "CoverMeta", parent=base["Normal"], textColor=_INK_MUTED, fontSize=9, alignment=TA_CENTER, spaceBefore=18
         ),
         "h1": ParagraphStyle("H1", parent=base["Heading1"], textColor=_INK, fontSize=19, spaceAfter=10),
-        "h2": ParagraphStyle("H2", parent=base["Heading2"], textColor=_INK, fontSize=13, spaceBefore=10, spaceAfter=4),
-        "body": ParagraphStyle("Body", parent=base["BodyText"], textColor=_INK, fontSize=10, leading=14, spaceAfter=8),
+        "principle_number": ParagraphStyle(
+            "PrincipleNumber", parent=base["Normal"], textColor=_ACCENT, fontSize=16, leading=18, spaceBefore=6
+        ),
+        # spaceBefore/spaceAfter/leading tightened slightly from the pre-
+        # this-round values (10/4 and 14/8) to reclaim vertical room for the
+        # new per-feature Summary callout box added below -- without this,
+        # Skin (which has the longest Measurements table, 4 metrics vs other
+        # features' 1) overflows its feature page onto a second physical
+        # page. Applied globally rather than as a Skin-specific special case
+        # since the difference is barely perceptible and keeps every page's
+        # styling uniform.
+        "h2": ParagraphStyle("H2", parent=base["Heading2"], textColor=_INK, fontSize=13, spaceBefore=7, spaceAfter=3),
+        "body": ParagraphStyle("Body", parent=base["BodyText"], textColor=_INK, fontSize=10, leading=13, spaceAfter=6),
         "muted": ParagraphStyle("Muted", parent=base["BodyText"], textColor=_INK_MUTED, fontSize=8.5, leading=12),
         "caption": ParagraphStyle(
             "Caption", parent=base["BodyText"], textColor=_INK_MUTED, fontSize=8, leading=11, spaceAfter=6
         ),
         "table_cell": ParagraphStyle("TableCell", parent=base["BodyText"], textColor=_INK, fontSize=9, leading=12),
         "table_head": ParagraphStyle("TableHead", parent=base["BodyText"], textColor=_ACCENT, fontSize=9.5, leading=12),
+        "toc_entry": ParagraphStyle("TocEntry", parent=base["BodyText"], textColor=_INK, fontSize=10.5, leading=18),
+        "toc_page": ParagraphStyle(
+            "TocPage", parent=base["BodyText"], textColor=_INK_MUTED, fontSize=10.5, leading=18, alignment=TA_CENTER
+        ),
+        "tier_caption": ParagraphStyle(
+            "TierCaption", parent=base["BodyText"], textColor=_ACCENT, fontSize=8.5, leading=12, spaceAfter=4
+        ),
+        "callout_heading": ParagraphStyle(
+            "CalloutHeading", parent=base["Heading2"], textColor=_INK, fontSize=11, spaceAfter=3
+        ),
+        "callout_body": ParagraphStyle(
+            "CalloutBody", parent=base["BodyText"], textColor=_INK, fontSize=9.5, leading=13
+        ),
     }
 
 
@@ -269,6 +368,14 @@ class _ReportCanvas(Canvas):
             super().showPage()
         super().save()
 
+    def current_page_number(self) -> int:
+        """The 1-indexed physical page currently being drawn on -- every
+        prior page has already been buffered into `_saved_states` via
+        showPage() above, so its length is exactly the count of pages
+        completed so far. Used by _PageMarker to record real page numbers
+        for the Table of Contents (see render_pdf's two-pass docstring)."""
+        return len(self._saved_states) + 1
+
     def _draw_footer(self, page_number: int) -> None:
         width, _ = _PAGE_SIZE
         if page_number <= _FRONT_MATTER_PAGE_COUNT:
@@ -280,6 +387,30 @@ class _ReportCanvas(Canvas):
         self.setFillColor(_INK_MUTED)
         self.drawRightString(width - _MARGIN, 0.55 * inch, label)
         self.restoreState()
+
+
+class _PageMarker(Flowable):
+    """Zero-size flowable placed at the start of a Table-of-Contents-tracked
+    section (a feature page, Recommendations, Appendix). When drawn, it
+    records the physical page it landed on into `page_numbers[name]` via
+    _ReportCanvas.current_page_number() -- see render_pdf's two-pass
+    docstring for why this replaced a plain 1-page-per-feature arithmetic
+    assumption."""
+
+    def __init__(self, name: str, page_numbers: dict[str, int]) -> None:
+        super().__init__()
+        self.name = name
+        self.page_numbers = page_numbers
+        self.width = 0
+        self.height = 0
+
+    def wrap(self, _available_width: float, _available_height: float) -> tuple[float, float]:
+        return (0, 0)
+
+    def draw(self) -> None:
+        canv = self.canv
+        if isinstance(canv, _ReportCanvas):
+            self.page_numbers[self.name] = canv.current_page_number()
 
 
 def _draw_page_background(canvas: Canvas, _doc: Any) -> None:
@@ -315,12 +446,54 @@ def _on_content_page(canvas: Canvas, doc: Any) -> None:
     _draw_header(canvas, doc)
 
 
-def render_pdf(report: Report, user: User, images: dict[str, bytes] | None = None) -> bytes:
+def render_pdf(
+    report: Report,
+    user: User,
+    images: dict[str, bytes] | None = None,
+    visuals: dict[str, bytes] | None = None,
+) -> bytes:
+    """`visuals` (Milestone 2, FR-022) is already filtered to only
+    status="generated" rows by report_service._load_all_feature_visuals --
+    this function never checks a status string itself, a feature simply
+    gets the before/after treatment if and only if its bytes are present
+    here, exactly the same "presence = available" convention `images`
+    already uses for crops.
+
+    Renders twice. A feature's AI-generated narrative occasionally overflows
+    its page onto a second physical page (longer real accounts than the
+    synthetic fixtures used during development do this for Nose/Skin, for
+    example) -- once that happens, every later section's real page number
+    no longer matches a simple 1-page-per-feature arithmetic count, which
+    the Table of Contents used before this fix. Pass 1 renders the full
+    document with placeholder TOC digits purely to let each section's
+    _PageMarker record its real page number (via _ReportCanvas.
+    current_page_number()); pass 2 re-renders with those real numbers baked
+    into the TOC. Both passes lay out identically apart from the TOC page's
+    own digits, which don't change that page's own length, so pass 1's
+    recorded numbers stay valid for pass 2."""
     images = images or {}
+    visuals = visuals or {}
     sections = report.sections
     styles = _styles()
     generated_label = f"Generated {report.created_at.strftime('%B %d, %Y')}"
 
+    page_numbers: dict[str, int] = {}
+    _build_pdf(report, sections, styles, generated_label, images, visuals, page_numbers, toc_page_numbers=None)
+    return _build_pdf(
+        report, sections, styles, generated_label, images, visuals, page_numbers, toc_page_numbers=page_numbers
+    )
+
+
+def _build_pdf(
+    report: Report,
+    sections: dict[str, Any],
+    styles: dict[str, ParagraphStyle],
+    generated_label: str,
+    images: dict[str, bytes],
+    visuals: dict[str, bytes],
+    record_into: dict[str, int],
+    toc_page_numbers: dict[str, int] | None,
+) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -335,24 +508,39 @@ def render_pdf(report: Report, user: User, images: dict[str, bytes] | None = Non
     story: list[Any] = []
     story.extend(_cover_flowables(styles, report, generated_label))
     story.append(PageBreak())
-    story.extend(_about_flowables(styles, sections))
+    story.extend(_disclaimer_flowables(styles))
     story.append(PageBreak())
-    story.extend(_understanding_flowables(styles, sections))
+    story.extend(_introduction_flowables(styles, sections, toc_page_numbers))
     story.append(PageBreak())
-    story.extend(_overview_flowables(styles, sections))
+    story.extend(_understanding_flowables(styles))
     story.append(PageBreak())
-    story.extend(_summary_flowables(styles, sections))
+    story.extend(_protocol_overview_flowables(styles, sections))
+    story.append(PageBreak())
+    story.extend(_facial_assessments_flowables(styles, sections))
     story.append(PageBreak())
 
     features = sections.get("features", {})
+    # Eyebrows + Eyes share one physical page -- report_design_spec.md
+    # §9.2's only such case -- so no PageBreak is inserted between exactly
+    # this one consecutive pair; every other feature gets its own page.
+    _SHARED_PAGE_PAIRS = {("eyebrows", "eyes")}
     for index, feature in enumerate(ANALYSIS_FEATURES):
-        story.extend(_feature_flowables(styles, feature, features.get(feature, {}), images.get(feature)))
+        story.append(_PageMarker(f"feature:{feature}", record_into))
+        story.extend(
+            _feature_flowables(
+                styles, feature, features.get(feature, {}), images.get(feature), visuals.get(feature), sections
+            )
+        )
         if index < len(ANALYSIS_FEATURES) - 1:
-            story.append(PageBreak())
+            next_feature = ANALYSIS_FEATURES[index + 1]
+            if (feature, next_feature) not in _SHARED_PAGE_PAIRS:
+                story.append(PageBreak())
     story.append(PageBreak())
 
-    story.extend(_recommendations_flowables(styles, features))
+    story.append(_PageMarker("closing_recommendations", record_into))
+    story.extend(_closing_recommendations_flowables(styles, sections))
     story.append(PageBreak())
+    story.append(_PageMarker("appendix", record_into))
     story.extend(_appendix_flowables(styles, report))
 
     doc.build(
@@ -374,55 +562,202 @@ def _cover_flowables(styles: dict[str, ParagraphStyle], report: Report, generate
         Paragraph("Facial Analysis Report", styles["cover_title"]),
         Paragraph("Your Report", styles["cover_subtitle"]),
         Paragraph(generated_label, styles["cover_meta"]),
+        Paragraph(_CONFIDENTIALITY_NOTE, styles["cover_meta"]),
     ]
 
 
-def _about_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
-    return [
-        Paragraph("About This Report", styles["h1"]),
-        Paragraph(sections.get("intro", ""), styles["body"]),
-        Spacer(1, 10),
-        Paragraph(_CONFIDENTIALITY_NOTE, styles["caption"]),
+def _disclaimer_flowables(styles: dict[str, ParagraphStyle]) -> list[Any]:
+    """report_template.md v3.0 §4 -- a dedicated 2-column Disclaimer /
+    Privacy Policy page, pure standing legal copy (no per-report data).
+    `sections["limitations"]` moved to the Introduction page (§5) below --
+    this page no longer doubles as the "what affects measurement accuracy"
+    text."""
+    left_col = [
+        Paragraph("Disclaimer Policy", styles["h2"]),
+        Paragraph(_DISCLAIMER_POLICY, styles["body"]),
     ]
-
-
-def _understanding_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
-    return [
-        Paragraph("Understanding Your Report", styles["h1"]),
-        Paragraph(sections.get("understanding_your_results", ""), styles["body"]),
+    right_col = [
+        Paragraph("Privacy Policy", styles["h2"]),
+        Paragraph(_PRIVACY_POLICY, styles["body"]),
     ]
-
-
-def _overview_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
-    features = sections.get("features", {})
-    rows: list[list[Any]] = [
-        [Paragraph("Feature Area", styles["table_head"]), Paragraph("At a Glance", styles["table_head"])]
-    ]
-    for feature in ANALYSIS_FEATURES:
-        data = features.get(feature, {})
-        rows.append(
-            [
-                Paragraph(_FEATURE_LABELS[feature], styles["table_cell"]),
-                Paragraph(data.get("summary_callout", ""), styles["table_cell"]),
-            ]
-        )
-    table = Table(rows, colWidths=[1.3 * inch, 4.6 * inch], repeatRows=1)
+    table = Table([[left_col, right_col]], colWidths=[2.85 * inch, 2.85 * inch])
     table.setStyle(
         TableStyle(
             [
-                ("LINEBELOW", (0, 0), (-1, -1), 0.5, _RECESSED),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LINEBEFORE", (1, 0), (1, 0), 0.5, _RECESSED),
+                ("LEFTPADDING", (1, 0), (1, 0), 14),
             ]
         )
     )
-    overview_intro = "A quick index of every feature area covered in this report, in the order they appear below."
-    return [
-        Paragraph("Overview", styles["h1"]),
-        Paragraph(overview_intro, styles["body"]),
+    return [Paragraph("Disclaimer & Privacy Policy", styles["h1"]), Spacer(1, 8), table]
+
+
+def _introduction_flowables(
+    styles: dict[str, ParagraphStyle], sections: dict[str, Any], page_numbers: dict[str, int] | None
+) -> list[Any]:
+    """report_template.md v3.0 §5 -- a 2-column Introduction page: left is
+    the method statement + Limitations (below a rule), right is the
+    Contents list ("Understanding the Results" through "Closing
+    Recommendations", plus this build's 2 bonus pages listed for honesty).
+    Replaces the prior round's separate "About This Report" and "Table of
+    Contents" pages -- folded into one, per the new page map."""
+    limitations_text = sections.get("limitations") or (
+        "This report is generated by an automated analysis of your submitted photos and "
+        "questionnaire responses. It is not a medical diagnosis and has not been reviewed by a "
+        "licensed professional."
+    )
+    left_col = [
+        Paragraph(sections.get("intro", ""), styles["body"]),
         Spacer(1, 6),
-        table,
+        Paragraph("Limitations", styles["h2"]),
+        Paragraph(limitations_text, styles["body"]),
+    ]
+
+    def _body_label(name: str) -> str:
+        if page_numbers is None or name not in page_numbers:
+            return "—"
+        return str(page_numbers[name] - _FRONT_MATTER_PAGE_COUNT)
+
+    contents_rows: list[list[Any]] = [
+        [
+            Paragraph("Understanding the Results", styles["toc_entry"]),
+            Paragraph(_to_roman(_PAGE_UNDERSTANDING), styles["toc_page"]),
+        ],
+        [
+            Paragraph("Your Protocol", styles["toc_entry"]),
+            Paragraph(_to_roman(_PAGE_PROTOCOL_OVERVIEW), styles["toc_page"]),
+        ],
+        [
+            Paragraph("Facial Assessments", styles["toc_entry"]),
+            Paragraph(_to_roman(_PAGE_FACIAL_ASSESSMENTS), styles["toc_page"]),
+        ],
+    ]
+    for feature in ANALYSIS_FEATURES:
+        contents_rows.append(
+            [
+                Paragraph(_FEATURE_LABELS[feature], styles["toc_entry"]),
+                Paragraph(_body_label(f"feature:{feature}"), styles["toc_page"]),
+            ]
+        )
+    contents_rows.append(
+        [
+            Paragraph("Closing Recommendations", styles["toc_entry"]),
+            Paragraph(_body_label("closing_recommendations"), styles["toc_page"]),
+        ]
+    )
+    contents_rows.append(
+        [Paragraph("Appendix", styles["toc_entry"]), Paragraph(_body_label("appendix"), styles["toc_page"])]
+    )
+    contents_table = Table(contents_rows, colWidths=[2.0 * inch, 0.7 * inch])
+    contents_table.setStyle(
+        TableStyle(
+            [
+                ("LINEBELOW", (0, 0), (-1, -1), 0.5, _RECESSED),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+    right_col = [Paragraph("Contents", styles["h2"]), contents_table]
+
+    table = Table([[left_col, right_col]], colWidths=[3.1 * inch, 2.6 * inch])
+    table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LINEBEFORE", (1, 0), (1, 0), 0.5, _RECESSED),
+                ("LEFTPADDING", (1, 0), (1, 0), 14),
+            ]
+        )
+    )
+    return [Paragraph("Introduction", styles["h1"]), Spacer(1, 8), table]
+
+
+# report_template.md v3.0 §6 -- 4 fixed, standing principles, identical
+# across every report (not regenerated per report).
+_UNDERSTANDING_PRINCIPLES = (
+    (
+        "These recommendations focus on facial health and harmony",
+        "The recommendations in this report focus on markers of facial health and harmony, working "
+        "with your existing features rather than trying to change what makes you distinctive.",
+    ),
+    (
+        "FaceIQ does not rate attractiveness",
+        "This platform does not rate attractiveness. The assessment highlights what works best for "
+        "your own features using objective measurement, not a universal beauty standard.",
+    ),
+    (
+        "Foundational and targeted guidance work together",
+        "The protocol mixes foundational guidance (SPF, sleep, hydration) with more targeted "
+        "recommendations — the fundamentals support the effectiveness of the more specific "
+        "guidance, they aren't filler.",
+    ),
+    (
+        "Everything here is informational and aesthetic only",
+        "All recommendations are informational and aesthetic only; any in-clinic treatment or "
+        "prescription product should always be discussed with a qualified medical professional.",
+    ),
+)
+
+
+def _understanding_flowables(styles: dict[str, ParagraphStyle]) -> list[Any]:
+    """report_template.md v3.0 §6 -- 4 large numbered principles, stacked
+    vertically. Replaces the prior round's single free-text paragraph."""
+    flowables: list[Any] = [Paragraph("Understanding the Results", styles["h1"])]
+    for index, (headline, body) in enumerate(_UNDERSTANDING_PRINCIPLES, start=1):
+        flowables.append(Paragraph(f"{index:02d}", styles["principle_number"]))
+        flowables.append(Paragraph(headline, styles["h2"]))
+        flowables.append(Paragraph(body, styles["body"]))
+        flowables.append(Spacer(1, 6))
+    return flowables
+
+
+def _protocol_overview_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
+    """report_template.md v3.0 §7 -- "{Subject}'s Protocol" overview page:
+    what the protocol is for, an objective/non-comparative framing
+    paragraph, and the fixed 11-feature "Projected potential" checklist
+    (2 columns, no per-feature detail yet -- that's the feature pages
+    below). Replaces the prior round's separate Overview (feature/at-a-
+    glance table) and Overall Summary (closing-recommendations prose)
+    pages. The reference's large top Before/After photo pair and its
+    second (11-axis, two-series) radar chart are both explicitly deferred
+    this round -- no whole-face "potential" image exists yet to show, and
+    the chart needs a new per-feature "projected potential" numeric value
+    this round doesn't compute (see the report redesign plan)."""
+    protocol_intro = (
+        "Your Protocol is built from your measured facial analysis and gives you a staged, "
+        "non-surgical path toward your own aesthetic potential — never a promise of a specific "
+        "outcome, but a practical direction grounded in what your photos and measurements actually "
+        "show."
+    )
+    objective_framing = (
+        "This analysis is objective and non-comparative: it highlights your own strengths and the "
+        "areas with the most practical opportunity for improvement, rather than measuring you "
+        "against a universal ideal."
+    )
+    half = (len(ANALYSIS_FEATURES) + 1) // 2
+    left_features = list(ANALYSIS_FEATURES[:half])
+    right_features = list(ANALYSIS_FEATURES[half:])
+    right_features += [None] * (len(left_features) - len(right_features))
+    checklist_rows = [
+        [
+            Paragraph(f"•  {_FEATURE_LABELS[left]}", styles["body"]),
+            Paragraph(f"•  {_FEATURE_LABELS[right]}", styles["body"]) if right else "",
+        ]
+        for left, right in zip(left_features, right_features)
+    ]
+    checklist = Table(checklist_rows, colWidths=[2.85 * inch, 2.85 * inch])
+    checklist.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 2)]))
+
+    return [
+        Paragraph("Your Protocol", styles["h1"]),
+        Paragraph(protocol_intro, styles["body"]),
+        Paragraph(objective_framing, styles["body"]),
+        Spacer(1, 6),
+        Paragraph("Projected Potential", styles["h2"]),
+        checklist,
     ]
 
 
@@ -451,8 +786,8 @@ def _measurement_flowables(styles: dict[str, ParagraphStyle], measurement: dict[
         TableStyle(
             [
                 ("LINEBELOW", (0, 0), (-1, -1), 0.5, _RECESSED),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),  # tightened (was 5) -- see _styles()' "h2"/"body" comment
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ]
         )
@@ -460,36 +795,241 @@ def _measurement_flowables(styles: dict[str, ParagraphStyle], measurement: dict[
     return [Paragraph("Measurements", styles["h2"]), table]
 
 
-def _summary_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
-    """The AI's own synthesized closing paragraph (narrative_result.
-    closing_recommendations -- "a short paragraph synthesizing all 11
-    features", see ai_narrative_service.py's system prompt), given its own
-    front-matter page as a proper overall summary -- previously computed
-    but never actually shown as prose anywhere in the PDF (only bucketed
-    into the Recommendations page's per-tier bullet lists)."""
-    summary_text = sections.get("closing_recommendations") or (
-        "Your personalized overall summary will appear here once your analysis has fully "
-        "processed all 11 feature areas."
+_ASSESSMENT_LABELS = {
+    "dimorphism": "Dimorphism",
+    "prototypicality": "Prototypicality",
+    "proportions": "Proportions",
+    "symmetry": "Symmetry",
+    "face_shape": "Face Shape",
+}
+_ASSESSMENT_ORDER = ("dimorphism", "prototypicality", "proportions", "symmetry", "face_shape")
+
+
+def _facial_assessments_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
+    """Milestone 2 (FR-018) -- a compact Category/Score/Label summary table
+    for the 5 Facial Assessments, own front-matter page (see
+    _FRONT_MATTER_PAGE_COUNT); a bonus page not part of report_template.md
+    v3.0's own page list, kept since it's real, tested content the client
+    reference simply doesn't happen to show. A category with no data
+    (pre-Milestone-2 report, or a photo that
+    failed landmark detection) shows "Not yet analyzed" rather than a
+    blank/zero row -- report_assembly_service.assemble_sections already
+    guarantees all 5 keys are present, so this never KeyErrors."""
+    assessments = sections.get("facial_assessments", {})
+    rows: list[list[Any]] = [
+        [
+            Paragraph("Assessment", styles["table_head"]),
+            Paragraph("Score", styles["table_head"]),
+            Paragraph("Reading", styles["table_head"]),
+        ]
+    ]
+    for category in _ASSESSMENT_ORDER:
+        entry = assessments.get(category) or {}
+        if entry.get("available"):
+            score_text = f"{entry.get('score', 0):.0f}/100"
+            label_text = entry.get("label") or ""
+        else:
+            score_text = "—"
+            label_text = "Not yet analyzed"
+        rows.append(
+            [
+                Paragraph(_ASSESSMENT_LABELS[category], styles["table_cell"]),
+                Paragraph(score_text, styles["table_cell"]),
+                Paragraph(label_text, styles["table_cell"]),
+            ]
+        )
+    table = Table(rows, colWidths=[1.9 * inch, 1.0 * inch, 3.0 * inch], repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("LINEBELOW", (0, 0), (-1, -1), 0.5, _RECESSED),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    intro = (
+        "Beyond the 11 individual feature areas, these broader measurements describe overall facial "
+        "balance and proportion. Like every score in this report, they are first-pass, computer-vision-"
+        "derived readings, not a clinical assessment."
     )
     return [
-        Paragraph("Overall Summary", styles["h1"]),
-        Paragraph(summary_text, styles["body"]),
+        Paragraph("Facial Assessments", styles["h1"]),
+        Paragraph(intro, styles["body"]),
+        Spacer(1, 6),
+        table,
     ]
 
 
+def _before_after_flowables(
+    styles: dict[str, ParagraphStyle], feature: str, image_bytes: bytes | None, visual_bytes: bytes
+) -> list[Any]:
+    """Milestone 2 (FR-022) -- side-by-side Before/After, only ever called
+    once `visual_bytes` (an AI-generated image) actually exists. The
+    Before side reuses the same crop `_feature_flowables` would otherwise
+    show alone; if no crop exists for this feature (Hair/Neck/Ears are
+    best-effort, see facial_measurement_service.extract_feature_crops), a
+    short placeholder paragraph stands in rather than crashing the table.
+    The disclosure caption is never omitted -- report_design_spec.md
+    §9.1's Category-C rule (an AI-generated image is always the most
+    visually flagged element on its page, never silently blended in)."""
+    max_w, max_h = 2.3 * inch, 1.7 * inch
+    before_cell: Any = (
+        _scaled_image(image_bytes, max_width=max_w, max_height=max_h)
+        if image_bytes
+        else Paragraph("No original photo available for this feature.", styles["caption"])
+    )
+    after_cell: Any = _scaled_image(visual_bytes, max_width=max_w, max_height=max_h)
+
+    table = Table(
+        [
+            [Paragraph("Before", styles["table_head"]), Paragraph("After (AI-generated)", styles["table_head"])],
+            [before_cell, after_cell],
+        ],
+        colWidths=[2.5 * inch, 2.5 * inch],
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 1), (-1, 1), 4),
+            ]
+        )
+    )
+    disclosure = (
+        f"The \"After\" image is an AI-generated, illustrative visualization of one suggestion for your "
+        f"{_FEATURE_LABELS[feature].lower()} — not a guaranteed outcome, a medical result, or a photograph."
+    )
+    return [table, Paragraph(disclosure, styles["caption"])]
+
+
+def _summary_callout_flowables(styles: dict[str, ParagraphStyle], feature: str, data: dict[str, Any]) -> list[Any]:
+    """New this round -- a direct page-by-page review of the client's own
+    reference PDF found every one of its 11 feature pages closes with a
+    colored "[Feature] Summary" callout box; this report previously ended
+    each feature page with a single bare caption line. Reuses the already-
+    computed `summary_callout` text (no new data needed) and folds the
+    previous "Confidence: Based on visible indicators" caption into fine
+    print inside the same box rather than dropping it."""
+    summary_text = data.get("summary_callout") or "No summary available for this feature."
+    cell = [
+        Paragraph(f"{_FEATURE_LABELS[feature]} Summary", styles["callout_heading"]),
+        Paragraph(summary_text, styles["callout_body"]),
+        Spacer(1, 4),
+        Paragraph("Confidence: Based on visible indicators", styles["caption"]),
+    ]
+    table = Table([[cell]], colWidths=[5.0 * inch])
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), _CALLOUT_BG),
+                ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    return [Spacer(1, 4), table]
+
+
+# report_design_spec.md v3.0 §9.2's primary sub-heading per feature page,
+# replacing the prior round's uniform "Observations" heading -- reuses the
+# same existing narrative text under a feature-specific name, not new
+# content (see this file's module docstring on what this round did/didn't
+# restructure).
+_PRIMARY_SUBHEADING = {
+    "hair": "Hair Style",
+    "eyebrows": "Eyebrows",
+    "eyes": "Eyes",
+    "nose": "Nose",
+    "cheeks": "Cheek Structure",
+    "jaw": "Jaw Structure",
+    "lips": "Lips",
+    "chin": "Chin",
+    "skin": "Skincare Protocol",
+    "neck": "Neck",
+    "ears": "Ear Structure",
+}
+# Features whose §9.2 sub-section list includes a second, styling/lifestyle-
+# guidance-flavored sub-section beyond the primary one -- Jaw's "Further
+# Enhancement" and Skin's "Further Skin Enhancement". Reuses the same
+# recommendation_ideas already generated (report_assembly_service.py),
+# just named per the spec instead of a generic "Recommendations" heading.
+_SECOND_SUBHEADING = {"jaw": "Further Enhancement", "skin": "Further Skin Enhancement"}
+
+
+def _hair_loss_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
+    """report_design_spec.md v3.0 §13.3 / report_template.md §10 -- the
+    Hair page's "Hair Loss" sub-section, AI-estimated alongside the rest
+    of the narrative (ai_narrative_service.py). Omitted entirely (not a
+    placeholder stage) when the model couldn't assess it from the photos."""
+    hair_loss = sections.get("hair_loss")
+    if not hair_loss:
+        return []
+    stage, label = hair_loss.get("stage"), hair_loss.get("label", "")
+    strip = "  ".join(
+        f"[{i}]" if i == stage else str(i) for i in range(1, 8)
+    )
+    return [
+        Paragraph("Hair Loss", styles["h2"]),
+        Paragraph(f"Stage {stage} of 7 — {label}", styles["body"]),
+        Paragraph(f"Normal {strip} Extreme", styles["caption"]),
+    ]
+
+
+def _attributes_flowables(styles: dict[str, ParagraphStyle], attributes: dict[str, str]) -> list[Any]:
+    """AI-classified named attributes for this feature (e.g. hair's
+    hairline/texture/density) -- report_design_spec.md's "match the
+    reference's actual content depth" directive. A compact key/value grid,
+    same visual language as _measurement_flowables' table, right above the
+    narrative it's woven into. Omitted entirely when nothing was
+    confidently classified (never a fabricated placeholder row)."""
+    if not attributes:
+        return []
+    rows: list[list[Any]] = [[Paragraph("Attribute", styles["table_head"]), Paragraph("Reading", styles["table_head"])]]
+    for key, value in attributes.items():
+        rows.append([Paragraph(_humanize_metric_key(key), styles["table_cell"]), Paragraph(value, styles["table_cell"])])
+    table = Table(rows, colWidths=[2.6 * inch, 3.3 * inch], repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("LINEBELOW", (0, 0), (-1, -1), 0.5, _RECESSED),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    return [table, Spacer(1, 4)]
+
+
 def _feature_flowables(
-    styles: dict[str, ParagraphStyle], feature: str, data: dict[str, Any], image_bytes: bytes | None
+    styles: dict[str, ParagraphStyle],
+    feature: str,
+    data: dict[str, Any],
+    image_bytes: bytes | None,
+    visual_bytes: bytes | None = None,
+    sections: dict[str, Any] | None = None,
 ) -> list[Any]:
     flowables: list[Any] = [Paragraph(_FEATURE_LABELS[feature], styles["h1"])]
-    if image_bytes:
-        flowables.append(_scaled_image(image_bytes, max_width=2.6 * inch, max_height=1.9 * inch))
+    if visual_bytes:
+        flowables.extend(_before_after_flowables(styles, feature, image_bytes, visual_bytes))
+    elif image_bytes:
+        flowables.append(_scaled_image(image_bytes, max_width=2.6 * inch, max_height=1.5 * inch))
         caption = f"Detail from your uploaded photo — {_FEATURE_LABELS[feature].lower()} region."
         flowables.append(Paragraph(caption, styles["caption"]))
 
     flowables.extend(_measurement_flowables(styles, data.get("measurement") or {}))
+    flowables.extend(_attributes_flowables(styles, data.get("attributes") or {}))
 
-    flowables.append(Paragraph("Observations", styles["h2"]))
+    flowables.append(Paragraph(_PRIMARY_SUBHEADING[feature], styles["h2"]))
     flowables.append(Paragraph(data.get("narrative", "") or "No observations recorded.", styles["body"]))
+
+    if feature == "hair":
+        flowables.extend(_hair_loss_flowables(styles, sections or {}))
 
     flowables.append(Paragraph("Strengths", styles["h2"]))
     flowables.append(Paragraph(data.get("strengths", "") or "None noted.", styles["body"]))
@@ -499,29 +1039,63 @@ def _feature_flowables(
 
     ideas = data.get("projected_potential") or []
     if ideas:
-        flowables.append(Paragraph("Recommendations", styles["h2"]))
+        flowables.append(Paragraph(_SECOND_SUBHEADING.get(feature, "Recommendations"), styles["h2"]))
+        tier = data.get("recommendation_tier")
+        if tier and tier in _TIER_LABELS:
+            flowables.append(Paragraph(f"Recommendation tier: {_TIER_LABELS[tier]}", styles["tier_caption"]))
         for idea in ideas:
             flowables.append(Paragraph(f"• {idea}", styles["body"]))
 
-    flowables.append(Paragraph("Confidence: Based on visible indicators", styles["caption"]))
+    flowables.extend(_summary_callout_flowables(styles, feature, data))
     return flowables
 
 
-def _recommendations_flowables(styles: dict[str, ParagraphStyle], features: dict[str, Any]) -> list[Any]:
-    per_feature: list[tuple[str, str]] = []
-    for feature in ANALYSIS_FEATURES:
-        ideas = features.get(feature, {}).get("projected_potential") or []
-        if ideas:
-            per_feature.append((_FEATURE_LABELS[feature], " ".join(ideas)))
+def _closing_recommendations_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
+    """report_template.md v3.0 §17 -- a 4-part synthesis (overall harmony/
+    structural priorities; periorbital/eye region; hair and lower-face
+    grooming; practical next steps + closing disclaimer line), rendered in
+    2 columns. `closing_recommendations` is one AI-generated field (the
+    same call ai_narrative_service.py always made) -- its prompt now asks
+    for this exact 4-paragraph structure (blank-line separated) instead of
+    a single generic paragraph; text is split on blank lines and, as a
+    defensive fallback for any older stored narrative that predates that
+    prompt change and is still one block, on sentence boundaries into
+    up to 4 roughly-even parts so this page never renders a single
+    unbroken wall of text. No new finding is introduced here -- purely a
+    layout of the same synthesis text already produced upstream."""
+    text = sections.get("closing_recommendations") or (
+        "Your personalized closing recommendations will appear here once your analysis has fully "
+        "processed all 11 feature areas."
+    )
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    if len(paragraphs) <= 1:
+        sentences = [s.strip() for s in text.replace("\n", " ").split(". ") if s.strip()]
+        chunk_size = max(1, -(-len(sentences) // 4))  # ceil division into up to 4 chunks
+        paragraphs = [
+            ". ".join(sentences[i : i + chunk_size]).rstrip(".") + "."
+            for i in range(0, len(sentences), chunk_size)
+        ] or [text]
 
-    flowables: list[Any] = [Paragraph("Recommendations", styles["h1"])]
-    for label, text in per_feature:
-        flowables.append(Paragraph(f"<b>{label}:</b> {text}", styles["body"]))
+    closing_line = (
+        "This protocol is educational, cosmetic guidance only — not a medical diagnosis or a "
+        "treatment plan."
+    )
+    left_col: list[Any] = [Paragraph(p, styles["body"]) for p in paragraphs[0::2]]
+    right_col: list[Any] = [Paragraph(p, styles["body"]) for p in paragraphs[1::2]]
+    right_col.append(Spacer(1, 6))
+    right_col.append(Paragraph(closing_line, styles["caption"]))
 
-    flowables.append(Paragraph("Next Steps", styles["h2"]))
-    for index, (label, text) in enumerate(per_feature, start=1):
-        flowables.append(Paragraph(f"{index}. ({label}) {text}", styles["body"]))
-    return flowables
+    table = Table([[left_col, right_col]], colWidths=[2.85 * inch, 2.85 * inch])
+    table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LINEBEFORE", (1, 0), (1, 0), 0.5, _RECESSED),
+                ("LEFTPADDING", (1, 0), (1, 0), 14),
+            ]
+        )
+    )
+    return [Paragraph("Closing Recommendations", styles["h1"]), Spacer(1, 8), table]
 
 
 def _appendix_flowables(styles: dict[str, ParagraphStyle], report: Report) -> list[Any]:

@@ -1,399 +1,290 @@
-# PHASE2_REPORT_TEMPLATE.md
-### AI Facial Analysis Platform — Phase 2 Enriched Report Content / Template Specification
-### Companion to `PHASE2_REPORT_DESIGN_SPEC.md` (Meridian visual system)
+# Report Template
+### AI Facial Analysis Platform — Enriched Report Content / Template Specification (Milestone 2)
+### Companion to `report_design_spec.md` (reference-exact system)
 
-**Status:** Content/narrative-structure specification — documentation only, not an implementation artifact
-**Legend:** ✅ Confirmed (from upstream documents) · 🔵 Proposed (content recommendation, not stakeholder-confirmed) · 🔴 TBD / open decision
+**Status:** ACTIVE — version 3.0 (2026-09-15). Replaces the prior "Meridian"-companion template in full.
+
+**Legend:** ✅ Confirmed (directly observed in the reference) · 🔵 Proposed (a reasonable content rule where the reference doesn't fully specify a mechanic) · 🔴 TBD (a genuine open decision)
 
 ---
 
 ## 0. Document Purpose and Authority
 
-This document defines **what content belongs in each section of the Phase 2 enriched report, and what rules the report-generation layer (the LLM narrative layer) must follow when producing it.** It answers *"what should the report say, and under what constraints?"* — not what it looks like (`PHASE2_REPORT_DESIGN_SPEC.md`), not the exact field-by-field data source (`PHASE2_REPORT_DATA_MAPPING.md`, future), not how scores are computed (`PHASE2_SCORING_SPEC.md`), and not the external API contract (`PHASE2_API_SPEC.md`).
+This document defines **what content belongs on each page of the report, in what order, and under what writing rules** — matching `MyFace-Protocol-test-1 (3).pdf` exactly in structure and substance, per Nishant's direction (2026-09-15, see `report_design_spec.md` §0). It does not define layout, color, or typography (`report_design_spec.md`) or exact data field paths (`database-design.md`).
 
-Like its design-spec companion, this is an independent writing pass, not a reworded copy of an earlier draft — it reaches the same substantive rules the project has already settled (they are fixed by the same upstream documents) but organizes and phrases them on its own terms, and it cross-references the Meridian components defined in the design spec by name rather than describing generic UI.
+**One deliberate departure from a literal copy — content-quality rule, not a structural one:** the reference PDF's narrative text exposes raw internal field names verbatim in places — e.g. "crownCoverage is recorded as notable," "a Natural overall scoreLabel with hairColor Black," "neckWidthClass Wide and neckLengthClass Long," "the assessment's scoreLabel Balanced." This document does **not** reproduce that pattern. It is a defect in the reference's own narrative-generation pipeline, not a deliberate design choice, and it directly contradicts this project's own standing rule (carried forward unchanged, §13) that raw technical identifiers are never exposed in user-facing prose. Every content rule below preserves the reference's exact structure, sections, data points, and tone — but phrases attributes in plain English (e.g. "a notable amount of coverage at the crown," not "crownCoverage is recorded as notable").
 
-**Authority order consulted (highest first):**
+**Authority order (highest first):**
 
-1. `PHASE2_REQUIREMENTS_ANALYSIS.md`
-2. `PHASE2_BRD.md`
-3. `PHASE2_PRD.md`
-4. `PHASE2_SCORING_SPEC.md`
-5. `PHASE2_ARCHITECTURE.md`
-6. `PHASE2_DATABASE.md`
-7. `PHASE2_API_SPEC.md`
-8. `PHASE2_REPORT_DESIGN_SPEC.md` — this document's companion, authoritative for structure/presentation; this document does not redesign it
+1. `client_requirements.md`
+2. `claude/PHASE2_REQUIREMENTS_ANALYSIS.md` §2.1–§2.7 (prior review of this same reference)
+3. `report_design_spec.md` — this document's companion, authoritative for layout/structure; this document does not redesign it
+4. This document, for content/copy rules
 
-**Phase 1 documents consulted for content continuity:** `REPORT_TEMPLATE.md`, `REPORT_DESIGN_SPEC.md`, `REPORT_DATA_MAPPING.md`, `PROJECT_OVERVIEW.md`, `CLAUDE.md`, `ONBOARDING_QUESTIONNAIRE_SPEC.md`, and `client_requirements.md` (FR-009 through FR-012 fix the eleven-feature, non-clinical, tiered-recommendation content baseline this document extends).
-
-**This document does not:** modify application code, implement report generation or PDF generation, modify any database/API/architecture/scoring document, modify any Phase 1 report document, modify `PHASE2_REPORT_DESIGN_SPEC.md`, invent new product requirements, scoring formulas, CV measurements, API fields, or database fields, or resolve open 🔴 product decisions without authoritative support. It produces exactly one artifact: `docs/report/PHASE2_REPORT_TEMPLATE.md`.
+**This document does not:** modify application code, implement report generation, define database/API fields, or resolve open scoring/capture questions. It produces one artifact: `report_template.md` (this file).
 
 ---
 
-## 1. Three Gaps Carried Forward, Not Resolved Here
+## 1. Content Continuity from Phase 1 (unchanged)
 
-- **Exact label/badge copy** (e.g., the Meridian evidence-category badges defined structurally in the design spec §9.1, or the score-state labels in §10) is intentionally left open there and not finalized here either, because no product/legal sign-off exists for exact user-facing strings. This document fixes the *content rules* that copy must satisfy, not the final wording.
-- **Non-scorable and insufficient-evidence wording** remains open per the scoring specification. This document fixes the *distinction* the narrative must preserve (§8.3).
-- **Confidence display to end users** remains open. This document writes its rules assuming confidence is shown (the design spec's default posture), and notes that if confidence display is rejected, every confidence-related content rule below simply does not apply, with no other content impact.
-
----
-
-## 2. Scope
-
-This document defines: section content responsibilities in the order fixed by the design spec §3.1's three-pass structure; content ordering within and across sections; required vs. optional content per section; score explanation placement and the score/confidence separation rule; evidence-reference language rules; the reusable eleven-feature content template; multi-angle observation structure; recommendation content rules; Before/After explanatory content; Closing Summary content; disclaimer microcopy requirements; missing/unavailable-content behavior at the content layer; and AI narrative-generation safety constraints.
-
-It does not define CSS, layout, colors, typography, icons (all `PHASE2_REPORT_DESIGN_SPEC.md`), React or frontend code, database schema, API shapes, exact field paths, scoring formulas, CV algorithms, the image-generation provider, or implementation tasks.
-
----
-
-## 3. Content Continuity from Phase 1
-
-| Phase 1 content rule | Treatment here |
+| Phase 1 rule | Status |
 |---|---|
-| Evidence-first explanations — every claim paired with reasoning, never a bare number/label | ✅ Unchanged, extended with multi-pose traceability language (§13) |
-| Objective, professional, non-judgmental, evidence-based, never-exaggerate, never-diagnose, never-shame writing rules | ✅ Unchanged in full, extended with score/confidence and AI-generation-labelling language (§18) |
-| General/cosmetic, non-clinical recommendation boundary | ✅ Unchanged; extended to Before/After framing (§16) |
-| Consistent structure across all eleven feature areas | ✅ Unchanged principle; the template itself gains new fields (§9) |
-| Concise per-feature summary before deeper detailed findings | ✅ Unchanged pattern (§10–§11) |
-| Standing, non-AI-generated disclaimer, never omitted or shortened | ✅ Unchanged (§5) |
-| Three-tier recommendation priority | ✅ Unchanged, no new tier (§15) |
-| Four fixed Closing Summary categories | ✅ Unchanged (§17) |
-| All eleven feature areas always present regardless of evidence completeness | ✅ Unchanged, reinforced throughout (§9, §20) |
-| Confidence shown as a qualitative label, never a numeric percentage | ✅ Unchanged, now formalized against Meridian's Confidence Indicator glyph (§8) |
-
-No Phase 1 content rule is discarded. Every Phase 2 addition either extends an existing content contract or adds a new, additive responsibility.
+| Evidence-first explanations — every claim paired with reasoning | ✅ Unchanged |
+| Objective, professional, non-judgmental, never-diagnose, never-shame writing | ✅ Unchanged |
+| General/cosmetic, non-clinical recommendation boundary | ✅ Unchanged |
+| Consistent structure across all eleven feature areas | ✅ Unchanged, restructured per §9 below |
+| Standing, non-AI-generated disclaimer, never omitted or shortened | ✅ Unchanged |
+| Three-tier recommendation priority (where used) | ✅ Unchanged — not directly visible in the reference's prose, but not contradicted either; see §15 |
+| All eleven feature areas always present regardless of evidence completeness | ✅ Unchanged |
+| No raw internal field names, scores rendered without qualitative interpretation, etc. | ✅ Unchanged — see §0's departure note above |
 
 ---
 
-## 4. Content Architecture
+## 2. Page-by-Page Content Map
 
-Follows the design spec's three-pass information architecture (§3.1 there) without redesigning it:
+Matches `report_design_spec.md` exactly:
 
-- **Pass One — Orientation:** Cover (§5.1), Disclaimer (§5), Introduction (§6), Overview (§7–§8), Multi-Pose Evidence Overview (§9)
-- **Pass Two — Depth:** Eleven Feature Analysis Sections (§10–§16)
-- **Pass Three — Synthesis:** Closing Summary (§17), Closing Page/Appendix (unchanged from Phase 1, not redefined here), Report metadata (unchanged, extended only per the design spec's optional footer note)
-
----
-
-## 5. Cover and Disclaimer Content
-
-### 5.1 Cover (static, never AI-generated)
-
-Required: report title, user-facing name/identity, generation date, brand text. Optional: a short human-readable reference code, never the raw internal analysis ID (per Meridian's de-emphasized treatment in the design spec §4). Must never appear on the cover: overall score, confidence label, any synthesis sentence, any feature-level content, or any technical/infrastructure detail.
-
-### 5.2 Disclaimer
-
-Standing, legally-reviewed copy — never AI-generated, never omitted, never shortened per report. Must establish, in substance: this is an AI-assisted facial appearance analysis; informational/cosmetic in nature; not a medical diagnosis, clinical assessment, or surgical plan; does not detect disease; recommendations are general/cosmetic, not treatment; numeric scores are not attractiveness/beauty judgments; AI-generated Before/After images are simulations with no guaranteed real-world outcome. Tone stays calm and confident — no alarming or excessively defensive legal language, and the disclaimer is not repeated in full inside every feature section; only the short inline Before/After reminder established in §16.4 recurs.
+| Page | Content |
+|---|---|
+| Dashboard | §3 |
+| PDF p.02 — Disclaimer & Privacy | §4 |
+| PDF p.03 — Introduction | §5 |
+| PDF p.04 — Understanding the Results | §6 |
+| PDF p.05 — "{Subject}'s Protocol" | §7 |
+| PDF pp.06–15 — Eleven feature pages | §9–§11 |
+| PDF p.16 — Closing Recommendations | §17 |
 
 ---
 
-## 6. Introduction Content
+## 3. Dashboard Content
 
-Required: a synthesized (never verbatim) statement of what informed the analysis — photo evidence plus questionnaire answers; a statement that the analysis uses multiple validated facial views (the seven-pose capture), not a single photo; a statement that questionnaire context personalizes interpretation and recommendations, not measurements (§14); a statement that the report covers the same eleven feature areas; where scoring is present, a plain-language statement that score and confidence are separate concepts (§8); a statement that recommendations are cosmetic guidance, not medical advice.
+### 3.1 Identity & Stat Tiles
+Subject's display name, a human-readable reference code (never the raw internal analysis ID), assessment date, overall score, evaluated-point count, analysis duration. No interpretation text here — numbers and labels only.
 
-Must not: repeat individual questionnaire answers verbatim; explain technical implementation (no CV library names, model/provider names, database or storage architecture, internal scoring formulas); dump raw question IDs; state any specific finding, score value, or recommendation (those belong to the Overview onward).
+### 3.2 "Your Facial Analysis" Explainer
+A short (2–3 sentence) plain-language paragraph describing the method (scientific facial analysis and regional assessment grounded in measured morphology) and the three-step framing: measured morphology → projected potential (before/after visualization) → staged protocol (non-surgical phase guidance). This is standing explainer copy, not per-subject narrative — it should read the same across every report.
+
+### 3.3 Priority Features to Improve
+For each surfaced feature (the lowest-scoring subset — see `report_design_spec.md` §13.1 for the open selection-logic question): feature name, score, a short qualitative label derived from the score band (e.g. "Needs attention," "Balanced" — never invented per-report, always drawn from a fixed, confirmed label set), and 1–3 plain-language attribute lines. Attribute lines translate structured findings into short noun phrases a reader understands without CV/measurement background — e.g. "noticeably uneven" rather than a raw evenness index, "wide" rather than a raw width classification code.
+
+### 3.4 Facial Age
+One sentence of context is optional; the component itself (numeral + slider) carries most of the meaning per `report_design_spec.md` §15. If accompanying text is shown, it states the estimate plainly ("Estimated facial age: 28") without medical framing (not a health claim, not tied to any specific finding elsewhere in the report unless the underlying data genuinely supports that link).
+
+### 3.5 Harmony Profile Chart Caption
+A one-line caption naming the chart's six dimensions in plain language (Harmony, Symmetry, Smoothness, Jawline, Skin, Volume) — the chart itself never needs narrative beyond this; per `report_design_spec.md` §12.3, the narrative layer never computes or restates the plotted values as prose elsewhere on the page.
+
+### 3.6 Overview Paragraph
+One short paragraph synthesizing the overall-harmony finding (e.g. "This evidence-based non-surgical protocol is grounded in the subject's measured facial analysis (overall harmony described as {qualitative label}), organised around key aesthetic features.") — this is the Dashboard's equivalent of the old Meridian system's "Interpretation text" (§5.1 of the retired spec), same content rule: never a bare number, always a qualitative frame, never invented beyond what the scoring layer actually returned.
+
+### 3.7 Treatment Protocol Card
+Phase label and title in plain language (e.g. "Foundation & Photoprotection," not an internal phase-code); a duration/timing line; 2–4 bullet action items, each traceable to a specific finding already shown elsewhere on the Dashboard (not invented independently); a closing paragraph explaining, in prose, why this phase is sequenced first. See §15 for the same non-clinical boundary that governs all recommendation content — a "Treatment Protocol" phase is still cosmetic/non-surgical guidance, never a clinical treatment plan, regardless of its name.
+
+### 3.8 Feature Evaluation Table
+Zone, a plain-language Finding, and an optional Reference/benchmark value. Where no reference/benchmark exists for a zone, the cell is left empty (an em dash or blank), never a fabricated placeholder value.
 
 ---
 
-## 7. Overview / Summary of Findings Content
+## 4. Disclaimer & Privacy Content
 
-### 7.1 Required Content
+Standing, legally-reviewed copy — never AI-generated, never omitted, never shortened per report. Must establish, in substance (carried forward unchanged from the retired spec's §5.2, still fully consistent with the reference):
 
-Overall score where present; overall confidence where present and where confidence display is adopted (§25 item 2 in the design spec); a short interpretation sentence explaining what the overall score reflects — harmony, symmetry, proportions, feature balance, in neutral non-clinical framing; the Harmony Chart's accompanying context (§9 below is about pose evidence — chart caption content is here); key strengths/highlights; important observations; recommended focus areas cross-referenced to the eleven feature sections.
+- This is an AI-assisted facial appearance analysis, informational/cosmetic in nature.
+- Not a medical diagnosis, clinical assessment, surgical plan, or disease-detection tool.
+- Recommendations are general/cosmetic, not treatment.
+- Numeric scores are not attractiveness/beauty judgments.
+- Any AI-generated Before/After or Potential imagery is a simulation with no guaranteed real-world outcome (see `report_design_spec.md` §11 — the reference itself omits this disclosure inline on photos, but it belongs here on the standing Disclaimer page at minimum, and ideally also inline per `report_design_spec.md` §20 item 2).
+- A data-retention statement (bounded retention window for supplied images/video; images are stored as a whole once modified by the platform, not disaggregated).
+- A brief note on cookies/analytics and a link to the full privacy policy.
+- A one-line commissioning statement naming the subject and the report month/year.
 
-Optional: a short reference to which features contributed most to the overall score, where the underlying data supports it — narrative acknowledgment only, never a re-derivation of the aggregation itself.
-
-### 7.2 The Governing Boundary
-
-**The narrative layer must never calculate the overall score.** Score generation is the deterministic scoring layer's responsibility; score explanation is this layer's responsibility. The narrative must not modify, round, or recalculate a score; infer or invent a missing feature score; derive an alternative scoring dimension; or rank features in a way not present in the authoritative `feature_scores` data.
-
-Must not appear: a synthesis statement that merely concatenates eleven feature one-liners; any numeric value the narrative computed itself.
+Tone stays calm and confident — no alarming or excessively defensive legal language. Not repeated in full inside any feature section.
 
 ---
 
-## 8. Score and Confidence Language Rules
+## 5. Introduction Content
 
-A cross-cutting section governing how narrative text discusses scores anywhere in the report.
+Required: a short statement of method (measurement/cephalometric framing, why this makes findings "less subjective"); a **Limitations** paragraph naming what can affect measurement accuracy (head position, lighting, camera quality, absence of radiographic imaging) plus a restated "not a medical diagnosis" line; a **Contents** list (section name + page number) covering every page from "Understanding the Results" through "Closing Recommendations."
 
-### 8.1 Score ≠ Confidence
+Must not: explain technical implementation (no CV library, model, or vendor names; no internal scoring formulas); state any specific finding, score, or recommendation (those belong to later pages).
 
-A high score does not imply high confidence; a lower score does not imply low confidence — two independent dimensions, never merged into a single implied judgment. This is the content-layer counterpart to the design spec's monochrome Confidence Indicator glyph (§1.6 there), which was deliberately built to be visually incapable of implying a score-quality color-code.
+---
 
-### 8.2 Missing Score ≠ Zero
+## 6. Understanding the Results Content
 
-Where a feature's score is null, the narrative must never render or imply "0," "zero score," "poor score," "failed score," or "bad result." Instead it uses non-numeric, non-judgmental language appropriate to which of the two non-scored states applies (§8.3).
+Four fixed, standing principles (not regenerated per report — this is product-level explainer copy, same across every report):
 
-### 8.3 The Three States, Narrative Treatment
+1. The recommendations focus on markers of facial health and harmony, working with the subject's existing features rather than trying to change what makes them distinctive.
+2. **This platform does not rate attractiveness.** The assessment highlights what works best for the subject's own features using objective measurement, not a universal beauty standard. This principle must be stated explicitly and on its own — not folded into general disclaimer boilerplate — per `client_requirements.md` FR-004/FR-012.
+3. The protocol mixes foundational guidance (SPF, sleep, hydration) with more targeted recommendations — the fundamentals support the effectiveness of the more specific guidance, they aren't filler.
+4. All recommendations are informational and aesthetic only; any in-clinic treatment or prescription product should be discussed with a qualified medical professional.
 
-| State | Narrative must communicate | Narrative must NOT communicate |
+---
+
+## 7. "{Subject}'s Protocol" (Overview) Page Content
+
+Required: a short paragraph on what the protocol is for and how following it supports progress toward the subject's own aesthetic potential (never a promise of a specific outcome); a short paragraph framing the analysis as objective/non-comparative — it highlights the subject's own strengths and areas for improvement rather than measuring against a universal ideal; the fixed eleven-feature list (heading "Projected potential"), presented as a simple checklist of what the report covers, with no per-feature detail yet; a caption for the Projected-Potential-vs-Client-Values chart naming both series in plain language.
+
+### 7.1 The Governing Boundary (carried forward unchanged)
+
+The narrative layer never calculates a score or a chart value — score/chart generation belongs to the deterministic scoring layer; this page only explains what the chart shows. No synthesis statement on this page may be a mechanical concatenation of eleven feature one-liners — it should read as one coherent framing paragraph.
+
+---
+
+## 8. Score and Confidence Language Rules (cross-cutting, carried forward unchanged)
+
+- A high score never implies high confidence and vice versa — keep them visually and textually separate wherever both appear.
+- A missing/non-scorable feature is never rendered or implied as "0," "zero," "poor," or "failed" — use plain, neutral language appropriate to why the value is absent (the methodology doesn't apply to that feature at all, vs. this specific analysis's evidence was insufficient — these are two different situations and should read as two different things, not one generic "unavailable" label).
+- Confidence, where shown, is a qualitative label, never a numeric percentage.
+- A score is never described using beauty/attractiveness language, superlatives, or star-rating language.
+
+---
+
+## 9. The Eleven Feature Pages — Shared Content Rules
+
+### 9.1 Fixed Feature Set and Order (unchanged)
+
+Hair, Eyebrows, Eyes, Nose, Cheeks, Jaw, Lips, Chin, Skin, Neck, Ears — `BR-008`. Per `BR-011`, "Smile" content (mouth width, smile shape/curvature, teeth exposure, upper smile arc) is folded into Lips as additional sub-fields, never a 12th top-level section — Eyebrows and Eyes sharing one physical page (§10, row 2) does not change the eleven-feature count.
+
+### 9.2 Per-Feature Sub-Sections
+
+Each feature page's sub-sections are fixed per feature (not a uniform template applied identically to all eleven) — see the table in `report_design_spec.md` §9.2 for which sub-headings belong to which feature. Within each sub-section:
+
+- Open with a **concise, evidence-grounded finding** in plain language — what was observed, stated neutrally, never forced toward a positive or negative conclusion.
+- Where relevant, note **how the finding relates to the subject relative to typical/peer ranges** (e.g. "wider than typical," "within the balanced range") — comparative, not judgmental, language.
+- Where a photo panel accompanies the sub-section (profile shot, annotated analysis image, isolated crop), the prose should be traceable to what that image shows in plain language (e.g. "on profile" or "from the side angle"), never a raw pose/angle identifier.
+- Close with a **maintenance-or-change recommendation** consistent with §15's non-clinical boundary — many sub-sections in the reference conclude "no non-surgical changes are recommended; continue current routine," which is a legitimate, complete recommendation in its own right, not a placeholder needing more content.
+
+### 9.3 Recommendation Tier Caption
+
+Where a specific non-invasive/OTC recommendation applies to a sub-section, an optional short caption states its tier in plain language (e.g. "This is a non-invasive, over-the-counter–level recommendation.") — see `report_design_spec.md` §9.1/§20 item 5 for the open question of whether this should appear consistently across all eleven features. Recommend implementing it as available-when-applicable across every feature, not Hair-specific, pending confirmation.
+
+### 9.4 Before/After (per feature)
+
+**Before** identifies the same original evidence already established for that feature elsewhere on the page (reused, not a new asset). **After** is clearly an illustrative simulation — see `report_design_spec.md` §11 and §4's disclosure requirement — explaining, in one short sentence, what change is being illustrated (a styling/grooming/skincare change, never a surgical or medical result) and stating plainly that it's illustrative, not a guaranteed outcome.
+
+### 9.5 Summary Callout
+
+Every feature page ends with a 2–4 sentence synthesis titled `"{Feature} Summary"` or `"{Feature} Region Summary"`: restates the feature's overall character, names the primary non-surgical priority (maintenance vs. a specific change), and never introduces a finding not already stated earlier on the page.
+
+---
+
+## 10. Feature-Specific Content Notes
+
+| Feature | Content specifics |
+|---|---|
+| **Hair** | Covers style (hairline, forehead exposure, texture, parting, crown coverage/visibility), hair loss (pattern-staging language mapped to the illustrated scale, `report_design_spec.md` §13.3 — described in plain language, e.g. "early-stage, minimal progression," never a raw internal stage code), and hair health (density, coverage, overall condition) as three distinct sub-sections. |
+| **Eyebrows + Eyes** | Covers brow shape/density/position, eyelash density/pigmentation and simple maintenance guidance, eye shape/lid contour, and under-eye tone/hollowing — four sub-sections on one page. Content for the two features stays clearly separated by sub-heading even though they share a page. |
+| **Nose** | Profile-based description (dorsal contour, alar base width, tip projection) plus a skin-surface-quality angle specific to the nose (pore visibility, shine) since nasal skin texture is a common secondary concern. |
+| **Cheeks** | Structural description (cheekbone height/projection, cheek width, jaw-to-cheek transition, symmetry) grounded in the annotated measurement photo — the prose should reference what the measurement lines show without naming the underlying CV technique. |
+| **Jaw** | Structural description (mandibular definition, transverse width, gonial angle) plus a distinct "Further Enhancement" sub-section offering grooming/styling ideas (hairstyle, facial hair shaping) that create visual balance without altering anatomy — always framed as styling, never a jaw-altering claim. |
+| **Lips** | Volume, philtrum length, cupid's-bow definition, and overall perioral balance — includes folded-in Smile content where evidence supports it (mouth width, smile arc) per `BR-011`, without calling it out as a separate section. |
+| **Chin** | Shape, height, width, and projection, plus labiomental-angle framing in plain language ("the crease beneath the lower lip," never "labiomental angle" verbatim unless the audience is expected to know the term). |
+| **Skin** | A Skincare Protocol sub-section (texture, tone evenness, redness, under-eye shadowing) with a concrete, tiered at-home regimen (cleanser → moisturizer → sun protection → one targeted active), plus a "Further Skin Enhancement" sub-section for longer-horizon habits (patch-testing new actives, gradual introduction). This is the most regimen-heavy page in the report and should stay OTC/lifestyle-level throughout — never a prescription or in-clinic procedure recommendation. |
+| **Neck** | Neck Size (length/width classification in plain language, posture framing) and Neck Skin (texture/laxity where evidence exists; where the platform's photo evidence genuinely can't assess neck skin quality, the content says so plainly rather than guessing — see §13). |
+| **Ears** | Symmetry and prominence relative to typical ranges, framed entirely around non-surgical, styling-based balancing (hairstyle, earring choice, eyewear-frame choice) — never a surgical framing (e.g. otoplasty) even when asymmetry is more pronounced. |
+
+---
+
+## 11. Evidence Traceability
+
+Findings should read as traceable to the photo evidence shown on the same page in plain language ("visible on profile," "seen in the frontal comparison") — never a raw pose/angle/measurement identifier, storage key, or database ID. This is unchanged from the retired spec's §13 and remains a hard rule even though the reference itself violates a related rule (raw field names, §0) — the pose/angle-traceability rule was never violated by the reference and stays intact.
+
+---
+
+## 12. Questionnaire Personalization (unchanged)
+
+Where a page references the subject's intake/medical history (e.g. "because medical conditions are reported, a conservative approach is recommended" — observed on the Jaw and Ear pages), this must read as *informed by* the questionnaire, never *measured from* it — questionnaire answers influence emphasis and caution level, never a CV measurement or a score.
+
+---
+
+## 13. Hallucination and Evidence Safety Rules (unchanged, restated)
+
+The narrative layer must not invent: measurements, scores, confidence, asymmetry, proportions, angle/pose observations, questionnaire answers, visual evidence, recommendation eligibility, or Before/After availability. **If evidence is missing, say less** — never compensate for a missing or insufficient value by inventing plausible-sounding content. Raw internal identifiers (field names, storage keys, database IDs, internal scoring-signal names, pose/angle codes) are never exposed in user-facing prose anywhere in the report — this is the rule the reference's own narrative violates (§0) and that this document does not carry forward.
+
+---
+
+## 14. Content Quality Rules (unchanged)
+
+Clear, specific, concise, evidence-grounded, professional, calm, non-judgmental. Avoid repetitive boilerplate, vague filler, unsupported certainty, exaggerated praise or criticism, beauty/attractiveness ranking, clinical terminology, and deterministic promises. Avoid verbatim repetition of the same observation across a sub-section, its Before/After caption, and the closing Summary box unless deliberate reinforcement genuinely helps (e.g. a priority finding re-surfaced in the Summary).
+
+---
+
+## 15. Recommendation Content Boundary (unchanged)
+
+General, cosmetic, appearance-oriented, non-clinical. Allowed: hairstyle/grooming, brow styling, facial-hair styling, skincare presentation, clothing/accessory considerations, other non-clinical appearance guidance — including the Dashboard's "Treatment Protocol" phases (§3.7), which are cosmetic/lifestyle phases, not a clinical treatment plan, regardless of the "Treatment Protocol" name. Must not appear anywhere: diagnosis, prescription-medication advice, surgical planning, disease claims, guaranteed outcomes. Prefer tentative phrasing ("may complement," "could consider") over absolute phrasing ("will fix," "guarantees"). Where no meaningful recommendation is supported by the evidence, the correct response is "no changes are recommended; continue current routine" — a complete, legitimate recommendation, not a gap to fill with generic filler.
+
+---
+
+## 16. Feature Score States (unchanged from retired spec, still applicable)
+
+| State | Narrative treatment |
+|---|---|
+| Scorable with a numeric score | State the score with qualitative interpretation |
+| Structurally non-scorable (no methodology exists for this feature at all) | Plain, neutral language stating the methodology doesn't apply — never implies a failed score |
+| Scorable, but this analysis's evidence was insufficient | Distinct wording from the above — never implies the subject did anything wrong, never conflated with "non-scorable" |
+
+---
+
+## 17. Closing Recommendations Content
+
+Four-paragraph synthesis (matching the reference's exact two-column, four-paragraph structure), covering, in order: (1) overall facial harmony and the primary structural/skeletal priorities; (2) the periorbital/eye region and its priorities; (3) hair and lower-face grooming priorities; (4) a practical, sequenced next-steps paragraph plus a closing line restating that the protocol is educational guidance, not medical diagnosis or treatment. Every point made here must trace back to a finding or recommendation already shown earlier in the report — this page never introduces a new finding. Avoid deficit-focused language ("your worst features") in favor of neutral, opportunity-focused framing ("areas with the most practical opportunity for improvement").
+
+---
+
+## 18. Required vs. Optional Content Matrix
+
+| Element | Required/Optional | Fallback |
 |---|---|---|
-| **A. Scorable with numeric score** | The score, paired with its confidence (where shown), plus qualitative interpretation | An implied second, unstated score |
-| **B. Structurally non-scorable** | This feature has no validated numeric methodology at all — a methodology-level, not per-analysis, fact | An implied numeric evaluation of any kind; never read as "this feature failed to score" |
-| **C. Scorable, insufficient evidence** | This analysis's evidence was not sufficient to responsibly compute a score this time — distinct wording from state B | Must not be conflated with state B; must not imply the user did anything wrong |
-
-🔴 Exact wording for states B and C remains open (see §21) — this document requires only that the two states are distinguishable from each other and from state A.
-
-### 8.4 Content-Generation Rules
-
-Confidence, where shown, is always a qualitative label paired with the Confidence Indicator glyph, never a numeric percentage. A score is never described using beauty/attractiveness language.
-
----
-
-## 9. Multi-Pose Evidence Overview Content
-
-### 9.1 Purpose
-
-Establishes, once, that the analysis is grounded in seven validated original images, before the reader encounters feature-specific subsets of that evidence — matching the design spec's hero-plus-strip gallery (§7.1 there).
-
-### 9.2 The Seven Poses (fixed, unchanged)
-
-Front Face, Left Profile, Right Profile, Left 45°, Right 45°, Smile, Top of Head. No pose is added, removed, or renamed here.
-
-### 9.3 Required Content
-
-A short introduction explaining that the seven images together form the evidence base; pose labels/captions naming each; an optional short explanation that different views contribute different observations (e.g., profile views add projection information not visible from the front).
-
-### 9.4 Content-Generation Rules
-
-Do not generate a long, independent analysis for every pose — the seven images form one combined evidence set, not seven mini-reports. Avoid formulaic per-pose narration ("Front image shows... Left image shows...") unless a specific observation is materially relevant to a specific feature, in which case it belongs in that feature's section (§13), not here. This overview contains only original-evidence captions — no derived or generated-content narration belongs here (§12).
+| Overall score, Evaluated count, Analysis time (Dashboard) | Required | N/A |
+| Priority Features table | Required if any feature qualifies | Omitted entirely if no feature meets the selection threshold (🔴 threshold TBD, `report_design_spec.md` §13.1) |
+| Harmony Profile chart | Required | Text/tabular fallback per `report_design_spec.md` §18 |
+| Treatment Protocol card | Required, at least one phase | N/A — see `report_design_spec.md` §20 item 3 for the one-phase-vs-several question |
+| Facial Age | Required where the underlying estimate exists | Omitted if no estimate is available |
+| Feature Evaluation table | Required | Empty cell (not a fabricated value) where no reference/benchmark exists |
+| Disclaimer & Privacy | Required | N/A — never omitted or shortened |
+| Each of the eleven feature pages | Required | N/A — always present regardless of evidence completeness |
+| Before/After per feature | Required where the underlying generation succeeded | A short isolated note if generation failed or is pending — never blocks the rest of the section |
+| Summary callout per feature | Required | N/A |
+| Closing Recommendations | Required | N/A |
 
 ---
 
-## 10. Evidence Category Content
+## 19. Open Content Decisions
 
-Extending the design spec's three visual badge treatments (§9.1 there) to their content responsibilities:
+Carried from `report_design_spec.md` §20 where they have a content-layer dimension:
 
-| Category | Content responsibility |
-|---|---|
-| **A. Original Evidence** | A short, consistent caption identifying the pose; never described as anything other than an original photograph |
-| **B. Derived Evidence** | A short caption identifying it as a crop or annotation, always traceable to its source pose — never presented as a new, independent finding separate from the original it derives from |
-| **C. AI-Generated Visualization** | Caption content reinforcing what the design spec's full-width band already signals visually — AI-generated, simulated, illustrative, never described in terms that could be mistaken for measured evidence |
-
-**The core content rule:** narrative and captions must never describe an AI-generated visualization as measured evidence, and a derived crop or annotation must always remain traceable to its original in the accompanying text. Category C content must never use medical/surgical/clinical framing (§16.4).
+1. Recommendation tier caption — general field or Hair-specific (§9.3).
+2. AI-generation disclosure copy for Before/After/Potential images — needs exact wording (§4, `report_design_spec.md` §11/§20 item 2).
+3. Priority Features / Feature Evaluation selection logic and exact qualitative-label set (§3.3, §3.8).
+4. Treatment Protocol — confirm one phase vs. several against `PHASE2_REQUIREMENTS_ANALYSIS.md` §2.1's three-phase live-app sample.
+5. Locked/pre-payment content states — entirely undesigned (`report_design_spec.md` §16).
 
 ---
 
-## 11. Eleven Feature Sections — Reusable Content Template
-
-### 11.1 The Eleven Feature Areas (fixed, unchanged)
-
-Hair, Brows, Eyes, Nose, Cheeks, Jaw, Lips, Chin, Skin, Neck, Ears.
-
-### 11.2 Reusable Structure
-
-| Field | Purpose | Required/Optional |
-|---|---|---|
-| **A. Feature name/header** | Names the area, carries a priority badge where elevated | Required |
-| **B. Feature score/status** | Numeric score + confidence, or one of the two non-numeric states (§8.3) | Required (the state is always present; the numeric value is not guaranteed) |
-| **C. Concise summary** | One-line synthesis | Required |
-| **D. Detailed findings** | Deeper narrative (§13) | Required |
-| **E. Evidence traceability** | The finding is traceable to relevant original pose(s); inline rendering is a design-layer choice, not a content requirement | Required as traceability |
-| **F. Multi-angle observations** | What different angles revealed, where relevant | Optional |
-| **G. Derived-evidence explanation** | Short caption context for any crop/annotation present | Optional |
-| **H. Recommendations** | Actionable, tiered suggestions | Optional — present only where genuinely supported |
-| **I. Before/After explanation** | Selective, only for eligible features | Optional |
-
-Always-required: A, B, C, D, E. Conditionally present: F, G, H, I — never fabricated to fill a slot.
-
-### 11.3 Feature-Appropriate Evidence
-
-Reproduces the confirmed pose-to-feature traceability baseline (content responsibility only, no CV constraint):
-
-| Feature | Relevant pose(s) |
-|---|---|
-| Hair | Front Face + Top of Head |
-| Brows | Front Face + Left/Right 45° (where useful) |
-| Eyes | Front Face + Left/Right 45° + Smile (where useful) |
-| Nose | Front Face + Left Profile + Right Profile + 45° views (where useful) |
-| Cheeks | Front Face + Left/Right 45° |
-| Jaw | Front Face + Left/Right Profiles + Left/Right 45° |
-| Lips | Front Face + Smile + Profile views (where relevant) |
-| Chin | Front Face + Left/Right Profiles |
-| Skin | Multiple usable facial views |
-| Neck | Front Face + Left/Right Profiles |
-| Ears | Left Profile + Right Profile |
-
-If a pose is unavailable for a specific analysis, it is simply omitted from that section's evidence — never blocking the section from rendering (§20).
-
-### 11.4 Content-Generation Rules
-
-All eleven sections are always present regardless of `scoring_status`, evidence completeness, or Before/After eligibility. Sections need not have identical asset counts or depth — a section with no derived evidence and no Before/After eligibility is still complete.
-
----
-
-## 12. Feature Summary and Detailed Findings
-
-### 12.1 Feature Summary Rules
-
-Must be concise (one line), neutral, evidence-grounded; must avoid repeating the detailed findings verbatim, beauty/ugliness framing, exaggerated praise or criticism, and medical language. A neutral finding is a valid, complete summary — the summary must not be forced toward a positive or negative conclusion.
-
-### 12.2 Detailed Findings
-
-Should explain, where supported by available evidence: relevant observable characteristics; multi-angle observations where meaningful (§13); relationships/proportions where supported; meaningful asymmetry where supported; how questionnaire context affects interpretation (§14); what evidence supports the observation (§13). Not every subsection needs every observation type — the narrative should be specific to the evidence actually available, not a boilerplate checklist.
-
----
-
-## 13. Multi-Angle Observations and Evidence Traceability
-
-Uses the pose-to-feature traceability in §11.3; no new mapping is invented here. The narrative may reference frontal, profile, 45-degree, dynamic Smile-pose, or Top-of-Head observations where relevant to a specific feature, and **must synthesize multiple views into one coherent feature-level interpretation** — it does not analyze each pose independently as seven mini-reports. Where views disagree or evidence is uncertain, the narrative does not hide the uncertainty or invent certainty; it uses confidence/evidence-aware language consistent with §8.
-
-Meaningful findings should be traceable to supporting evidence in plain, user-facing language (e.g., conceptually: "most visible in the frontal and 45-degree views"). Raw technical measurement identifiers, storage keys, database IDs, internal measurement/signal names, and confidence internals are never exposed in user-facing prose — traceability language stays at the level a normal user understands.
-
----
-
-## 14. Questionnaire Personalization
-
-Questionnaire answers may influence emphasis, depth, recommendation relevance, and personalization of report content — never objective CV measurements, any computed score, or a substitute for missing visual evidence. The exact mapping mechanics belong to the future `PHASE2_REPORT_DATA_MAPPING.md`, not this document. The narrative must clearly separate observed facial evidence from user-provided preference/context in substance — a recommendation informed by a questionnaire answer reads as "informed by," never "measured from," that answer.
-
----
-
-## 15. Recommendation Content
-
-### 15.1 Boundary (unchanged from Phase 1)
-
-Recommendations remain general, cosmetic, appearance-oriented, practical, non-clinical, using the existing three-tier priority system. Allowed categories: hairstyle/grooming, eyebrow styling, facial-hair styling, general skincare presentation, clothing/style considerations where relevant, other non-clinical appearance guidance.
-
-Must not appear: diagnosis, prescription medication advice, surgical planning, treatment plans, disease claims, guaranteed outcomes, or any phased/staged clinical-protocol structure.
-
-### 15.2 Language Register
-
-Prefer tentative phrasing ("may complement," "could consider," "one option is") over absolute or promissory phrasing ("you must," "this will fix," "this guarantees").
-
-### 15.3 No Fabricated Filler
-
-The narrative must never invent a recommendation merely because the feature template's recommendation slot exists. Where no meaningful, evidence-supported recommendation is appropriate, the section simply has no recommendation content — the correct response to thin evidence is reduced specificity or an absent recommendation, never generic filler.
-
-### 15.4 Recommendation Certainty Is Not Scoring Confidence
-
-No recommendation-level confidence/certainty concept is introduced here. A feature's scoring confidence describes the reliability of its numeric score — it must not be silently reused as the confidence behind a recommendation for that feature. The narrative layer does not calculate or infer a recommendation-confidence value.
-
----
-
-## 16. Before/After Content
-
-### 16.1 Selectivity
-
-Not assumed for every feature — only for features in `before_after_available_features`. A feature with no eligible cosmetic recommendation simply has no Before/After content, not a "not applicable" placeholder; the rest of the section's analysis and score remain complete regardless.
-
-### 16.2 States and Content
-
-| State | Required content |
-|---|---|
-| Not eligible | No content block at all |
-| Pending/generating | A short in-progress note; rest of the section unaffected |
-| Generated | Full explanatory content (§16.3) |
-| Failed | A short, isolated note that the visualization could not be generated |
-
-### 16.3 Generated-State Content
-
-**Before:** identifies the original evidence already established for that feature (reused, not new). **After:** clearly identifies the image as an AI-generated simulation, explains what cosmetic/styling recommendation is being illustrated, states that it is illustrative, and does not promise a real-world outcome.
-
-### 16.4 Must Never Imply
-
-A medical result, a surgical result, a guaranteed transformation, or a predicted treatment outcome. If generation fails, content communicates only that the optional visualization could not be generated — never "analysis failed." The base report and that feature's written analysis remain fully valid.
-
----
-
-## 17. Closing Summary
-
-Preserves the four-category structure: Key Takeaways, Strengths, Areas for Improvement, Next Steps. May use authoritative scoring results as one signal informing which items surface — never a new ranking formula invented by the narrative layer. Avoid language like "Your worst features are..." or "Lowest beauty features..."; use neutral framing like "Areas worth focusing on..." or "Features with the most practical opportunities...". Every Next Steps item traces back to a recommendation already shown earlier in the report — this section never introduces new findings.
-
----
-
-## 18. Content Quality Rules
-
-Content should be clear, specific, concise but informative, evidence-grounded, professional, calm, respectful, non-judgmental, and understandable to a normal user. Avoid repetitive boilerplate, excessive technical terminology, vague filler, unsupported certainty, exaggerated praise or criticism, attractiveness/beauty ranking, clinical terminology, and deterministic promises. Avoid repeating the same observation verbatim across summary, detailed findings, recommendation, and Closing Summary unless repetition materially improves understanding (e.g., a Priority-tier item deliberately re-surfaced in Next Steps).
-
----
-
-## 19. Hallucination and Evidence Safety Rules
-
-**The narrative layer must not invent:** measurements, scores, confidence, asymmetry, proportions, pose observations, questionnaire answers, visual evidence, recommendation eligibility, or Before/After availability.
-
-**Governing principle: if evidence is missing, say less.** The narrative must not compensate for missing evidence by inventing plausible-sounding content. Where authoritative structured data indicates a feature is unavailable, insufficient, or uncertain, the narrative preserves that state rather than smoothing over it. This is a hard rule with no exception for narrative quality or reader engagement.
-
-**Score/narrative consistency:** the narrative must avoid contradictions — calling a relatively balanced feature severely problematic, using absolute certainty where confidence is low, or implying a numeric evaluation for a structurally non-scorable feature. Where confidence is lower, narrative certainty must be correspondingly more restrained.
-
----
-
-## 20. Required vs. Optional Content Matrix
-
-| Content element | Required/Optional | Fallback behavior |
-|---|---|---|
-| Overall score | Required where scoring exists | Interpretation sentence stands alone if absent (legacy) |
-| Overall confidence | Conditionally required (🔴 pending) | Omitted entirely if confidence display is rejected |
-| Chart context | Required where chart is shown | No accompanying text needed if chart doesn't render (legacy) |
-| Seven-pose overview | Required | Original single-photo presentation used instead for legacy reports |
-| Each feature section (×11) | Required | N/A — always present |
-| Feature score/status | Required (state always present) | Non-numeric state shown per §8.3 |
-| Feature confidence | Conditionally required, only alongside a score | Omitted where score is null |
-| Original evidence | Required at the evidence-model level | Inline per-section rendering is a design-layer choice |
-| Derived crop/annotation | Optional | Simply omitted, no placeholder |
-| Recommendation | Optional | Section remains complete without one |
-| Before/After | Optional, selective | No block shown, not "not applicable" |
-| Closing summary | Required | N/A |
-| Disclaimer | Required | N/A — never omitted or shortened |
-
----
-
-## 21. Open Content Decisions
-
-Carried forward, not resolved here:
-
-### 🔴 Open / require product, legal, or upstream-spec resolution
-1. Final score scale (0–100 assumed).
-2. Confidence-level display wording, and whether confidence is user-facing at all.
-3. Wording for the structurally-non-scorable state.
-4. Wording for the insufficient-evidence state.
-5. Exact evidence-category badge copy.
-6. Pre-payment visual-evidence visibility — this document follows the design spec's conservative posture.
-7. Exact Before/After disclosure copy beyond the substance required in §16.3–§16.4.
-
-### 🔵 Proposed / optional, not required unless authoritatively confirmed
-8. Recommendation-level confidence/certainty indicator — not introduced by this document (§15.4).
-9. Inline original-image rendering per feature section — a design-layer presentation choice, not a content requirement.
-
-None of the above reopens an already-confirmed decision — the eleven feature areas, the seven poses, the questionnaire, score meaning, payment-visibility boundaries, and the non-clinical recommendation boundary all remain fixed.
-
----
-
-## 22. Relationship to Companion Documents
+## 20. Relationship to Companion Documents
 
 ```
-PHASE2_REPORT_DESIGN_SPEC.md    = visual/UX presentation, Meridian token system
-PHASE2_REPORT_TEMPLATE.md       = content/narrative structure                    (this document)
-PHASE2_REPORT_DATA_MAPPING.md   = exact source/field mapping                     (future)
-PHASE2_SCORING_SPEC.md          = deterministic scoring methodology
-PHASE2_API_SPEC.md              = external/client-facing data contract
+report_design_spec.md          = layout/visual specification, reference-exact system   (companion)
+report_template.md              = content/narrative structure                          (this document)
+claude/PHASE2_REQUIREMENTS_ANALYSIS.md = prior review of the same reference PDF/video
+database-design.md              = exact source/field mapping
+api-specification.md            = external/client-facing data contract, payment gating
 ```
-
-These documents must not duplicate each other's responsibilities.
 
 ---
 
-## 23. Final Validation
+## 21. Final Validation
 
-- [x] Exactly 11 feature areas remain.
-- [x] Exactly 7 poses remain.
-- [x] Questionnaire remains unchanged.
-- [x] All feature sections remain present, always.
+- [x] Exactly eleven feature areas remain, Eyebrows+Eyes sharing one physical page without becoming a twelfth section.
 - [x] Score ≠ confidence, throughout.
-- [x] Score:null ≠ 0, throughout.
-- [x] The narrative layer never calculates scores.
-- [x] The chart caption never calculates scores.
-- [x] No fabricated measurements or evidence.
-- [x] Evidence traceability is mandatory; inline image rendering is not incorrectly made mandatory.
-- [x] No beauty/attractiveness scoring or framing.
-- [x] Recommendations remain general/cosmetic, never fabricated as filler.
-- [x] Recommendation certainty is not derived from scoring confidence.
-- [x] No medical/clinical/surgical framing anywhere, including Before/After.
-- [x] Before/After remains selective; generated images remain clearly labelled as simulated.
-- [x] A Before/After failure never fails the report.
-- [x] Derived evidence remains optional, never a precondition for a complete section.
-- [x] Original/derived/generated evidence remain content-distinct.
-- [x] Legacy Phase 1 reports remain content-compatible.
-- [x] No implementation detail or API/database schema has been introduced.
+- [x] Missing/non-scorable ≠ zero, throughout.
+- [x] The narrative layer never calculates scores or chart values.
+- [x] No raw internal field names, IDs, or scoring-signal names appear in user-facing prose anywhere (the one deliberate departure from the literal reference, per §0).
+- [x] Recommendations remain general/cosmetic, including "Treatment Protocol" phases, never clinical.
+- [x] AI-generated Before/After/Potential imagery is flagged as needing disclosure copy even though the reference omits it (§4, §9.4).
+- [x] Closing Recommendations introduces no new findings.
+- [x] Every page maps to a real page in the reference PDF/Dashboard (§2).
 
 ---
 
-*This document is a content/narrative-structure specification only. It does not implement report generation, PDF generation, frontend components, or application code, and does not modify any database, API, architecture, scoring, or Phase 1 report document, nor `PHASE2_REPORT_DESIGN_SPEC.md`. It is subordinate in authority to `PHASE2_REQUIREMENTS_ANALYSIS.md`, `PHASE2_BRD.md`, `PHASE2_PRD.md`, `PHASE2_SCORING_SPEC.md`, `PHASE2_ARCHITECTURE.md`, `PHASE2_DATABASE.md`, `PHASE2_API_SPEC.md`, and `PHASE2_REPORT_DESIGN_SPEC.md`.*
+*This document is a content/narrative-structure specification only. It does not implement report generation, PDF generation, frontend components, or application code, and does not modify any database, API, architecture, or scoring document, nor `report_design_spec.md`. It is authorized directly by Nishant (2026-09-15) to match `MyFace-Protocol-test-1 (3).pdf`'s content exactly, with the single deliberate exception of natural-language phrasing in place of the reference's raw field-name leakage (§0).*

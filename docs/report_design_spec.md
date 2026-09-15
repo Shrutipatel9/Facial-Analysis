@@ -1,571 +1,370 @@
-# PHASE2_REPORT_DESIGN_SPEC.md
-### AI Facial Analysis Platform — Phase 2 Enriched Report Design Specification
-### Visual system: **Meridian** (alternate design track — not a copy of the prior draft)
+# Report Design Spec
+### AI Facial Analysis Platform — Enriched Report Design Specification (Milestone 2)
+### Visual system: reference-exact (Meridian retired)
 
-**Status:** Design specification — visual/structural/UX design only, not an implementation artifact
-**Legend:** ✅ Confirmed (from upstream documents) · 🔵 Proposed (design recommendation, not stakeholder-confirmed) · 🔴 TBD / open decision
+**Status:** ACTIVE — version 3.0 (2026-09-15). This version fully replaces the "Meridian" design system (v1–v2, see `report_design_spec.md`'s own prior revisions) and closes out both of that system's Reconciliation Notes.
 
----
-
-## 0. Document Purpose, Authority, and Relationship to the Prior Draft
-
-This document defines the **visual, structural, presentation, and UX design** of the Phase 2 enriched facial-analysis report under a distinct visual system, codenamed **Meridian**. It answers the same question the earlier design pass answered — *"what should the Phase 2 report look like and how should its information be presented?"* — but is written as an independent pass: its own section order, its own component names, and, most visibly, its own color and iconography system. It is not a find-and-replace of the earlier document. Where the two happen to reach the same conclusion (e.g., the eleven feature areas, the seven poses, the score/confidence separation rule), that is because both are constrained by the same upstream requirements, not because one copied the other.
-
-It does not define where data comes from (a future `PHASE2_REPORT_DATA_MAPPING.md`) or exactly what text the LLM generates (`PHASE2_REPORT_TEMPLATE.md`, the companion document to this one).
-
-**Authority order consulted (highest first) — unchanged from the project's existing convention:**
-
-1. `PHASE2_REQUIREMENTS_ANALYSIS.md` — finalized Phase 2 requirements baseline
-2. `PHASE2_BRD.md`
-3. `PHASE2_PRD.md`
-4. `PHASE2_SCORING_SPEC.md`
-5. `PHASE2_ARCHITECTURE.md`
-6. `PHASE2_DATABASE.md`
-7. `PHASE2_API_SPEC.md`
-
-**Phase 1 documents consulted for continuity of meaning (not visual continuity):** `REPORT_DESIGN_SPEC.md`, `REPORT_TEMPLATE.md`, `REPORT_DATA_MAPPING.md`, `PROJECT_OVERVIEW.md`, `CLAUDE.md`, `ONBOARDING_QUESTIONNAIRE_SPEC.md`, and `client_requirements.md`'s confirmation that **no client branding assets exist for this project (CON-003)** — the team owns the visual system. That last point is what licenses Meridian to fix real color and type tokens rather than describing colors only in the abstract.
-
-`PHASE2_VISION_REFERENCE.md` and any external benchmark report remain non-authoritative, consistent with the posture already established for this project: reference material never overrides a decision confirmed in the seven documents above.
-
-**This document does not:** modify application code, generate PDF/rendering code, modify any database/API/architecture/scoring document, modify any Phase 1 report document, or invent new Phase 2 product requirements. It produces exactly one artifact: `docs/report/PHASE2_REPORT_DESIGN_SPEC.md`.
+**Legend:** ✅ Confirmed (directly observed in the reference) · 🔵 Proposed (a reasonable default where the reference is a static PDF/screenshot and cannot show a mechanic — loading, error, locked states) · 🔴 TBD (a genuine open decision the reference cannot resolve)
 
 ---
 
-## 1. The Meridian Design System Foundation
+## 0. What Changed, and Why (Read This First)
 
-This is the one section with no equivalent in the prior draft, and it exists specifically so that color and iconography stay consistent across every component described later — every subsequent section pulls its color and icon references from here rather than inventing new ones page by page.
+**Directive (2026-09-15, Nishant):** The client-supplied reference report — `MyFace-Protocol-test-1 (3).pdf`, already reviewed in [`claude/PHASE2_REQUIREMENTS_ANALYSIS.md`](./claude/PHASE2_REQUIREMENTS_ANALYSIS.md) §2.1 and §2.7 — is now the **binding visual and structural target** for the Phase 2 report. Reproduce its format and content exactly, not merely draw inspiration from it. This is a deliberate, one-time override of `principles-and-workflow.md`'s general posture that "reference material informs but does not confirm" — that general posture still governs every other artifact in this project; it has been explicitly superseded **for this one artifact, by this one dated instruction.**
 
-### 1.1 Why a named, fixed-token system (a deliberate, minor divergence)
+**What this retires:**
+- The abstract, token-based "Meridian" visual system (§1 of the prior version) — its color/type/icon tokens, its "three reading passes" navigation framing, and its cover-only-restraint treatment are all retired. The reference report has real, observable colors, layout, and page structure; this document now specifies those directly instead of an invented abstract system.
+- The "seven-pose Multi-Pose Evidence Overview" vs. "3-angle Multi-Angle Evidence Overview" debate carried across the two Reconciliation Notes. This document does not reopen or resolve that question — see §17. The reference report's photography does not by itself prove a capture-angle count (its many crops, profiles, and split-face composites could be sourced from more angles than three, or reused across sessions), so it is out of scope here and remains `photo_capture_spec.md` (`ASM-005`)'s call.
+- The single six-axis "Harmony Chart" as the *only* chart. The reference report has **two distinct radar charts** on two different pages — see §12.
 
-The prior design pass deliberately avoided fixed hex values, describing color only as an abstract "role-based" system. That is a defensible choice, but with no client branding constraint in place (`client_requirements.md` CON-003), Meridian instead fixes concrete tokens once, here, and every component references the token name — never a raw hex value — so a page built from this spec cannot drift from a page built six months later. This is the single largest visible difference between the two design passes, and it is intentional. 🔵
+**What carries forward unchanged:** the eleven-feature set (`client_requirements.md` `FR-009`/`BR-008`, `BR-011` — Smile folds into Lips, not a 12th feature); the non-clinical/cosmetic recommendation boundary; the general accessibility baseline (§18); the print-first/PDF-and-web-both design goal.
 
-### 1.2 Color Tokens
+**What's new here, not in any prior version of this document:** the Report Dashboard as a fully-specified page in its own right (§4), a "Priority features to improve" table, a "Feature Evaluation" table, a phased "Treatment Protocol" card, a "Facial Age" component, a second (11-axis, two-series) radar chart, an illustrated Hair Loss scale, and a much broader photographic evidence model (profile shots, tight crops, annotated/measurement overlays, a split-face composite) than the old "3-angle gallery" described.
 
-| Token | Role | Value | Usage discipline |
+---
+
+## 1. Authority
+
+| Document | Relationship |
+|---|---|
+| `client_requirements.md` | Project source of truth; unaffected by this document |
+| `claude/PHASE2_REQUIREMENTS_ANALYSIS.md` §2.1, §2.7, §3 (row 8), §6 (OI-2) | Prior review of the same reference PDF; this document operationalizes that review into an implementable design spec and does not contradict it |
+| `milestone2_phase_plan.md` / `claude/PHASE2_PHASE_WISE_REQUIREMENTS.md` | Implementation sequencing; Phase 12 ("Meridian Design Implementation") should be read against this document, not the retired Meridian spec |
+| `database-design.md`, `api-specification.md` | Exact field mapping and payment-gating contract; this document does not redefine either — see §16 |
+| `report_template.md` | Companion document — content/copy rules for every page/section defined here |
+| `photo_capture_spec.md` (`ASM-005`) | Governs the actual capture-angle count; not reopened by this document (§17) |
+
+**This document does not:** modify application code, define scoring formulas, define database/API fields, or resolve the capture-angle question. It produces one artifact: `report_design_spec.md` (this file).
+
+---
+
+## 2. Two Report Surfaces
+
+The reference material shows the report exists in two forms, sharing content but not layout:
+
+| Surface | What it is | Covered in |
+|---|---|---|
+| **Report Dashboard** (web) | An interactive "Protocol Summary" screen — the first thing a user sees, richer and more data-dense than a PDF cover | §4 |
+| **Generated PDF** (16 pages) | The exportable/printable report: disclaimer, introduction, protocol overview, eleven feature pages, closing recommendations | §5–§10 |
+
+Both surfaces present the *same* underlying analysis; the Dashboard is not a subset or a teaser — it has its own components (Priority features table, Treatment Protocol, Facial Age, Feature Evaluation table) that do not appear anywhere in the PDF, and the PDF has its own components (Disclaimer/Privacy page, page-by-page Before/After pairs, closing synthesis) that do not appear on the Dashboard. Neither is a re-layout of the other.
+
+---
+
+## 3. Design Tokens
+
+🔴 **All hex values below are visually approximated from the reference PDF/screenshot, not sampled from brand assets** — no client branding assets exist for this project (`client_requirements.md` `CON-003`), so exact values are an implementation decision, not a reference fact. Treat every value in this section as a starting point for design review, not a locked deliverable.
+
+### 3.1 Color
+
+| Role | Approx. value | Usage observed in reference |
+|---|---|---|
+| `ink.heading` | `#1A2230` (near-black navy/charcoal) | Page titles ("Hair", "Disclaimer", "MYFACE" wordmark), body headings |
+| `ink.subheading` | `#9FB4C7` (muted slate blue) | The second word of every two-line page title ("Recommendations", "the Results", "Policy") — always lighter/lower-contrast than the first line |
+| `ink.body` | `#2A2D31` | Running paragraph text |
+| `ink.muted` | `#6B7280` | Captions, footnotes, table sub-rows, page numbers |
+| `accent.primary` (teal-green) | `#2E8B7D` | Overall score numeral, top-of-page accent bar on every PDF page, chart line/fill, "PROTOCOL" phase-number label |
+| `surface.page` | `#FFFFFF` (PDF) / `#F5F6F7` (Dashboard background) | Page background |
+| `surface.card` | `#FFFFFF` with a thin `#E5E7EB` border | Every card/tile/table container |
+| `surface.summaryBox` | `#DCEEE8` (light sage/mint) | Every per-feature "Summary" callout box |
+| `surface.badgeChip` | `#33343680` (dark, semi-opaque) with white text | Corner label chips on photos (BEFORE / AFTER / PROFILE / ANALYSIS / LIPS / EYES) |
+
+### 3.2 Typography
+
+| Token | Observed usage |
+|---|---|
+| `type.display` | Large two-line page titles (bold heading line + lighter subheading line), cover/dashboard numerals |
+| `type.heading` | Sub-section headings within a page ("Hair Style", "Hair Loss", "Nose Summary") |
+| `type.body` | Running paragraph copy |
+| `type.numeral` | Scores, table figures, page numbers — tabular alignment |
+
+Exact typeface families are 🔴 an implementation choice; what's fixed is the role system itself (display / heading / body / numeral).
+
+### 3.3 Shape & Spacing
+
+One corner radius applied to every card, image tile, and badge chip (moderate rounded-rectangle, observed consistently across dashboard cards, PDF photo frames, and the Priority/Feature Evaluation table rows). One consistent vertical spacing scale between stacked components. A thin teal-green rule runs across the very top of every PDF page (the only full-bleed color element on an otherwise white page) and repeats as a horizontal divider under every page title.
+
+### 3.4 Badge / Label Chips
+
+A small dark, semi-opaque rounded-rectangle chip, white all-caps text, fixed to the top-left corner of a photo. This is the **only** evidence-labeling mechanism observed — there is no separate icon system, no colored border-by-category, no second chip style. Observed chip labels: `BEFORE`, `AFTER`, `POTENTIAL`, `PROFILE`, `ANALYSIS`, `LIPS`, `EYES`. See §11 for the full pattern.
+
+---
+
+## 4. Report Dashboard ("Protocol Summary")
+
+✅ Confirmed structure, directly observed. This is the web-native landing view of a completed analysis — richer than any PDF page and not reproduced by any single PDF page.
+
+### 4.1 Top Bar
+`PROTOCOL | {subject name} #{reference number} {date}` on the left; the `MyFace`-equivalent product wordmark on the right.
+
+### 4.2 Three Stat Tiles (full-width row, top)
+| Tile | Content |
+|---|---|
+| Overall Score | Large numeral in `accent.primary` + `/100` |
+| Evaluated | A point count (e.g. "170+") + `points` |
+| Analysis Time | A duration (e.g. "1 day") |
+
+### 4.3 Left Column
+1. **Identity card** — grey-filled tile: subject's display name (large), `PROTOCOL #{reference}`, `Assessed {date}`, `Overall {score}/100`.
+2. **"Your Facial Analysis" card** — a short explanatory paragraph, three numbered steps (1. Measured morphology, 2. Projected potential — "Before / After visualisation", 3. Staged protocol — "Non-surgical phase guidance"), paired with a labeled face diagram (forehead/eyes/nose/mouth region call-outs on a face silhouette) and a restated three-up summary row (Score / Evaluated / Analysis Time, mirroring §4.2).
+3. **Priority features to improve** — a table surfacing the *lowest-scoring* features only (not all eleven), each row showing: feature name, score `/100`, a short qualitative label (e.g. "Needs attention", "Balanced"), and 1–3 attribute sub-rows (e.g. under Skin: "Evenness — Noticeably uneven", "Texture — Textured"). See §13.1.
+
+### 4.4 Middle Column
+1. **Before / Potential photo pair** — two frontal photos side by side, badge-chipped `BEFORE` and `POTENTIAL`.
+2. **Facial Age card** — a single numeral (e.g. "28") plus a horizontal range slider (labeled endpoints, e.g. "5" and "65") with a single pointer marking the estimated age. Not a range or a projection — one current estimate. 🔵 No interaction behavior is observable from a static reference; treat the slider as a read-only visualization, not an input control, unless product decides otherwise (🔴).
+3. **Harmony Profile** — a 6-axis radar chart. See §12.1.
+4. **Overview** — a short paragraph synthesizing the overall harmony finding in prose (e.g. "This evidence-based non-surgical protocol is grounded in the subject's measured facial analysis (overall harmony described as *{qualitative label}*), organised around key aesthetic features.").
+
+### 4.5 Right Column
+**Treatment Protocol card** — see §14.
+
+### 4.6 Bottom, Full-Width
+**Feature Evaluation table** — Zone / Finding / Reference columns. See §13.2.
+
+### 4.7 Footer
+A single restated evaluation-point count (e.g. "170+ evaluation points").
+
+---
+
+## 5. PDF Page 02 — Disclaimer & Privacy Policy
+
+✅ Confirmed. Two-column layout under the standard PDF page header. Numbered `02` in the reference's own printed folio — the Dashboard (§4) is the unnumbered page that precedes it when the Dashboard is exported alongside the PDF; a PDF generated standalone begins its own numbering at this page (still labeled `02`, matching the reference exactly, rather than renumbered to `01`).
+
+| Column | Content |
+|---|---|
+| Left — **Disclaimer Policy** | Informational/educational purpose only; not medical/clinical/professional advice; no warranty of accuracy; a bolded closing paragraph restating that any treatment decision belongs to a qualified professional |
+| Right — **Privacy Policy** | What the report is used for; that supplied content (images/video) is stored for a bounded retention window (observed: "up to 1 year for reference purposes"); that modified client images are stored as a whole within the report; a cookie/analytics note; a link to the full privacy policy |
+| Footer (left, below the rule) | `{Brand} Inc` — "The following report was commissioned for {subject} on {month/year}." |
+
+This page's copy is legally-reviewed standing text — see `report_template.md` §5.2 for the content rules; this section governs layout only (two equal columns, a vertical rule between them, no imagery).
+
+---
+
+## 6. PDF Page 03 — Introduction
+
+✅ Confirmed. Two-column layout.
+
+| Column | Content |
+|---|---|
+| Left, top | Short intro paragraph (cephalometric/measurement-based framing, "less subjective" positioning) |
+| Left, bottom (below a horizontal rule) | **Limitations** — a short paragraph on what can affect measurement accuracy (head position, lighting, camera quality, absence of radiographic imaging) and a restated "not a medical diagnosis" line |
+| Right | **Contents** — a simple two-column-free list: section name + page number, one row per page from "Understanding the Results" through "Closing Recommendations" |
+
+---
+
+## 7. PDF Page 04 — Understanding the Results
+
+✅ Confirmed. Four large numbered principles (`01`–`04`), stacked vertically, each a bold one-line headline + a one-to-two-sentence explanation. Observed headlines:
+
+1. These recommendations focus on key markers of facial health and harmony (not "what makes the subject unique").
+2. **{Brand} does not rate attractiveness** — assessment highlights what works for the subject's own features via objective measurement, not a universal standard.
+3. The protocol mixes foundational and advanced recommendations (fundamentals like SPF/sleep/hydration support the effectiveness of more targeted guidance).
+4. All recommendations are informational/aesthetic only — any in-clinic treatment or prescription should be discussed with a qualified medical professional.
+
+Principle 2 is the direct, explicit "does not rate attractiveness" framing this project's requirements already require (`client_requirements.md` FR-004/FR-012) — it should be reproduced as its own numbered principle, not folded into general disclaimer language.
+
+---
+
+## 8. PDF Page 05 — "{Subject}'s Protocol"
+
+✅ Confirmed. This is the PDF's overview/summary page — distinct from both the Dashboard (§4) and the per-feature pages (§9).
+
+| Region | Content |
+|---|---|
+| Top, full-width | A large **Before / After** photo pair (frontal, badge-chipped), the largest images in the document |
+| Below-left | Two short paragraphs: what the protocol is for, and a framing statement that the analysis is objective/non-comparative ("highlights strengths and areas for improvement" rather than measuring against a universal ideal) |
+| Below-left, "Projected potential" | A heading + the fixed list of all eleven features, in two columns (not the per-feature detail — just the list, establishing what's covered ahead) |
+| Below-right | The **second radar chart** — 11 axes (one per feature), two overlaid series with a legend: "Projected Potential" and "Client Values". See §12.2. |
+
+---
+
+## 9. PDF Pages 06–15 — The Eleven Feature Pages
+
+✅ Confirmed. Ten physical pages carry the eleven features (Eyebrows and Eyes share one page — see §9.2). Fixed order: **Hair, Eyebrows, Eyes, Nose, Cheeks, Jaw, Lips, Chin, Skin, Neck, Ears** (`BR-008`/`BR-011`, unchanged).
+
+### 9.1 Shared Page Anatomy
+
+Every feature page carries the standard PDF header/footer (brand wordmark, `PAGE / NN`, top accent rule) and a two-line page title in the pattern `{Feature}` / `Recommendations` (bold heading + muted subheading, per §3.2). Below that, the content is **not** a rigid fixed grid — page layout varies per feature (see §9.2) — but every page shares these recurring building blocks:
+
+- One or more **photo panels**, each badge-chipped per §3.4/§11.
+- A **Before/After photo pair**, badge-chipped, specific to that feature (not a reused dashboard image).
+- One or more **prose sub-sections**, each with its own bold sub-heading (e.g. "Hair Style", "Nose", "Jaw Structure").
+- A **Summary callout box** (`surface.summaryBox`) — always titled `"{Feature} Summary"` or `"{Feature} Region Summary"`, containing a 2–4 sentence synthesis. Position varies: a right-column card on some pages (Hair, Eye, Nose, Chin\*, Skin), a full-width band on others (Cheek, Jaw, Lip, Chin\*, Ear, Neck) — 🔵 treat as a responsive variant of one component, not two components.
+- Occasionally, an italic **"Recommendation tier: {tier}"** caption directly under a sub-section's body text (observed only on the Hair page, both under "Hair Style" and "Hair Health"). 🔴 Open whether this is meant to appear per-section across all eleven features (and simply wasn't populated for the other ten in this sample) or is specific to sections with a clear OTC/non-invasive recommendation. Recommend implementing it as a general, optional per-sub-section field (present when a recommendation tier applies, absent otherwise) rather than a Hair-only special case — see `report_template.md` §11.4.
+
+### 9.2 Per-Feature Breakdown
+
+| Feature (page) | Sub-sections | Photo panels | Notable unique element |
 |---|---|---|---|
-| `ink.primary` | Body and heading text | `#2B2822` (warm charcoal, not pure black) | All running text |
-| `ink.muted` | Captions, footnotes, metadata | `#6B6558` | Never for a primary finding |
-| `surface.paper` | Page background | `#FAF7F1` (warm ivory) | Every page, web and PDF |
-| `surface.card` | Card/panel fill | `#FFFFFF` | Cards sit slightly lighter than the page |
-| `surface.recessed` | Locked-state and placeholder fill | `#EFEAE0` | Never used for real content |
-| `accent.primary` | The one emphasis color per page | `#A8461F` (terracotta) | Overall score numeral, active nav state, unlock CTA — scarce by rule (§1.5) |
-| `accent.secondary` | Structural accent — dividers, icon strokes, chart line | `#3E6E64` (deep juniper) | Icons, chart geometry, section rules — never for body text |
-| `state.positive` | Strength / high-confidence framing | `#5C7A52` (moss) | Muted; never bright green |
-| `state.notice` | Caution / medium-confidence framing | `#B98A3E` (ochre) | Muted; never bright yellow |
-| `state.reserved` | "Raise with a professional" framing only | `#96432E` (rust) | Reserved for the Alert/Flag Card only — see §15.2 |
+| **Hair** (p.6) | Hair Style; Hair Loss; Hair Health | Before/After (hairline close-up, top-down angle) | The **Hair Loss scale** — an illustrated 7-stage strip, Normal → Need Attention → Extreme, current stage boxed/highlighted. See §13.3. |
+| **Eyebrows + Eyes** (p.7) | Eyebrows; Eyelashes; Eyes; Under eye | Before/After (brow close-up); a small cropped `EYES` panel (isolated eye-shape close-ups on a neutral tile, no face context) | Two features share one page — the only page that does |
+| **Nose** (p.8) | Nose | `PROFILE` panel (side view); Before/After (tight nostril/tip crop) | Profile (side-angle) photo, not frontal |
+| **Cheeks** (p.9) | Cheek Structure | `ANALYSIS` panel — a frontal photo with white line-overlay annotations (measurement triangulation across cheekbones/jaw); Before/After | The only page with visible measurement-line overlay annotation |
+| **Jaw** (p.10) | Jaw Structure; Further Enhancement | `PROFILE` panel (side view); Before/After (lower-face crop) | Two-part prose (structure + styling/enhancement guidance) |
+| **Lips** (p.11) | Lips | `LIPS` panel — isolated lip crop on a neutral tile; Before/After | Summary box is full-width, not right-column |
+| **Chin** (p.12) | Chin | Two `PROFILE` panels (side view, each with a thin dashed vertical reference line overlay); Before/After (chin/jawline crop) | Only page with two profile shots of the same type |
+| **Skin** (p.13) | Skincare Protocol; Further Skin Enhancement | A large split-face composite (left/right halves of one frontal photo divided by a dashed vertical line, for texture/tone comparison); Before/After (cheek-skin crop) | Split-face composite is unique to Skin |
+| **Neck** (p.14) | Neck Size; Neck Skin | Before/After (neck/jawline-from-below crop) | No profile or annotated panel — Before/After only |
+| **Ears** (p.15) | Ear Structure | Before/After (frontal, ear-focused crop) | No dedicated ear close-up beyond the Before/After pair |
 
-**The six-color-per-page ceiling is unchanged in principle from the prior draft** — no single page may use more than six of the above tokens plus `ink.primary`/`surface.paper`. This is a governing rule, not a suggestion, because it is what keeps the "calm confidence" tone the client's requirements imply (informational, non-alarmist framing, per `client_requirements.md` FR-004, FR-012).
-
-### 1.3 Typography Tokens
-
-| Token | Typeface role | Usage |
-|---|---|---|
-| `type.display` | A warm serif for the cover title and section dividers only | Cover, section-opener headers |
-| `type.heading` | A humanist sans, medium weight | H1–H3 |
-| `type.body` | The same humanist sans, regular weight | Body copy, captions |
-| `type.numeral` | A monospaced or tabular-figure face | Score numerals, chart axis values, page numbers — so figures always align in a column |
-
-Exact typeface families are an implementation choice deferred to frontend/PDF tooling; what is fixed here is the **four-role system itself** — display, heading, body, numeral — and the rule that numerals never borrow the body typeface, so a score is always visually distinct from prose around it. 🔵
-
-### 1.4 Icon System
-
-**One icon library, one weight, one stroke width, used everywhere.** 🔵 Proposed: a single outlined icon set (e.g., a Phosphor- or Feather-style regular-weight, 1.5px-stroke library), with exactly one exception — the Confidence Indicator's dot glyph (§1.6), which is the only filled icon shape permitted in the system, precisely so confidence reads as visually distinct from every other icon in the report.
-
-Icon usage is restricted to: feature-area icons (one per feature, in the Feature Header), the lock glyph (locked-state components), the evidence-category badges (§9), and the Confidence Indicator. Icons are never decorative filler — an icon that does not carry one of those four meanings does not appear.
-
-### 1.5 The Accent-Scarcity Rule (carried forward, restated for Meridian's tokens)
-
-`accent.primary` (terracotta) is reserved for **one** load-bearing element per page — the overall score numeral, an active navigation state, or an unlock call-to-action, never more than one of these categories active at once on a single page. This is the same governing principle the prior draft stated ("if it appears everywhere it stops signaling importance"), now expressed against Meridian's specific token rather than an abstract accent role.
-
-### 1.6 The Confidence Indicator Glyph (new, minor structural addition)
-
-Rather than a text-only badge, Meridian defines one small reusable glyph for confidence, always paired with its text label (never color- or glyph-only, per §20):
-
-- **High** — a filled dot (●) in `ink.primary`
-- **Medium** — a half-filled dot (◐) in `ink.primary`
-- **Low** — a hollow dot (○) in `ink.primary`
-
-The glyph is intentionally monochrome (never colored by confidence level) so a reader cannot mistake confidence-coding for score-coding — reinforcing the score ≠ confidence separation required by the scoring specification (§10.1 below) through a visual choice, not just a layout choice.
-
-### 1.7 Spacing and Shape Tokens
-
-One corner radius (`radius.card`, a moderate rounded-rectangle, applied to every card, image tile, and badge without exception) and one spacing scale (a consistent step used for all vertical rhythm between components). As with the prior draft, no second radius or ad hoc spacing value is introduced anywhere in this document — consistency comes from having exactly one of each, not from choosing "tasteful" one-off values per component.
+Every page's prose references the subject's questionnaire history where relevant (e.g. Jaw and Ear pages both note "because medical conditions are reported, [conservative approach]") — a content rule, not a layout rule; see `report_template.md` §14.
 
 ---
 
-## 2. Preserving What Phase 1 Already Established
+## 10. PDF Page 16 — Closing Recommendations
 
-Meridian **replaces the Phase 1 visual token values** (§1) but does not reopen Phase 1's structural design philosophy or its non-visual rules. The following carry forward unchanged in substance, restated here so this document is self-contained:
-
-| Element | Treatment under Meridian |
-|---|---|
-| Design philosophy (evidence-first, calm/non-alarmist tone, print-first, one component vocabulary reused everywhere) | ✅ Unchanged in substance; Meridian is a new token set applied to the same philosophy |
-| Grid system, print-safe margins | ✅ Unchanged |
-| Component library shape (Information Card, Metric/Score Card, Analysis Card, Recommendation Card, Summary Card, Alert/Flag Card, Badge, Tag, Divider, Callout, Section Header, Feature Header) | ✅ Unchanged component *set*; every one of them now draws its color/type/icon from §1 instead of the prior token values |
-| Image guidelines (consistent crop ratios per pose type, captioning, one annotation-overlay color, no beautifying filters) | ✅ Unchanged rule; the one overlay color is now `accent.secondary` (§1.2) |
-| Three-tier recommendation priority system | ✅ Unchanged — no new tier |
-| Four-category Closing Summary (Key Takeaways, Strengths, Areas for Improvement, Next Steps) | ✅ Unchanged structure |
-| Accessibility baseline (contrast, non-color-only signaling, alt text, tagged PDF) | ✅ Unchanged; extended in §20 |
-| Print/PDF unbreakable-unit rules | ✅ Unchanged; extended in §17 |
-
-No Phase 1 or prior-draft **structural or content** decision is reopened here without a cited reason. Every genuine visual difference in this document traces back to §1's token system, not to a reinterpretation of what the report must contain.
+✅ Confirmed. Two-column prose, no images, no summary box, no new photo evidence. Four paragraphs synthesizing across all eleven features (see `report_template.md` §17 for the exact synthesis rules) plus a closing line restating that the protocol is educational guidance, not medical diagnosis or treatment.
 
 ---
 
-## 3. Report Information Architecture
+## 11. Evidence / Photo Treatment
 
-### 3.1 Section Order — Reorganized Around Three Reading Passes
+✅ Confirmed pattern, observed on every photographed page:
 
-🔵 Meridian groups the report into three explicit reading passes rather than a flat page list, because the client's requirements describe two very different audiences reading the same document at two different depths (a skimmer checking the overall score pre-payment, and an engaged reader working through all eleven features post-payment):
-
-**Pass One — Orientation** (cover through evidence overview, read in under two minutes)
-1. Cover
-2. Disclaimer
-3. Introduction
-4. Table of Contents
-5. Overview (overall score, confidence, chart, highlights)
-6. Multi-Pose Evidence Overview
-
-**Pass Two — Depth** (the eleven feature sections, read at leisure, typically post-payment)
-7. Eleven Feature Analysis Sections
-
-**Pass Three — Synthesis** (closing through appendix)
-8. Closing Summary
-9. Closing Page / Appendix
-10. Report metadata / footer
-
-This is the same eleven-section content set as the prior draft in the same relative order — the "three passes" framing is a presentational and navigational device (§16.2's sticky navigation groups by pass), not a reordering of which section comes before which.
-
-### 3.2 Rationale
-
-Unchanged from the project's established reasoning: the overall score and chart belong on the Overview page because the overall score is a confirmed pre-payment preview concept, and the seven-pose gallery sits once, up front, rather than repeating inside every feature section, because the evidence set is common to all eleven features. All eleven feature sections render regardless of `scoring_status` or evidence completeness — this is a hard rule carried forward unmodified (§13.4).
+- **One labeling mechanism**: a small dark chip, white all-caps text, top-left corner of the photo. No second badge style, no color-coded category system, no icon-plus-label combination — just the chip.
+- **Chip vocabulary observed**: `BEFORE`, `AFTER`, `POTENTIAL` (Dashboard only — the PDF uses `AFTER`, not `POTENTIAL`, for the same pairing), `PROFILE`, `ANALYSIS`, `LIPS`, `EYES`. New chip labels should follow the same pattern: a single all-caps word naming what the photo *is*, not a category taxonomy.
+- **No AI-generation disclosure language is visible anywhere in the reference** — no "simulated," "illustrative," or similar caption accompanies any Before/After or Potential image. This is a **gap, not a confirmed absence** relative to this project's own standing rule (`report_template.md` §16.4 / `client_requirements.md`) that AI-generated visualizations must be clearly labeled as such — the reference cannot be read as license to drop that disclosure. Where this project's Before/After images are AI-generated (`FR-022`), the disclosure requirement stands even though the visual reference doesn't show one. 🔴 flagged for explicit confirmation, not silently resolved either way.
+- **Annotation overlays** (Cheek's measurement lines, Chin's dashed reference line, Skin's split-face divider) use a thin white or dashed line directly on the photo — no separate legend, no colored zones.
+- Photos are real color photography throughout — no monochrome/desaturated treatment, no illustration style except the Hair Loss scale icons (§13.3) and the labeled face diagram on the Dashboard (§4.3).
 
 ---
 
-## 4. Cover
+## 12. Charts
 
-Meridian's cover keeps the same content hierarchy the project has already settled on (title > user name > date/metadata), rendered in `type.display` for the title only, everything else in `type.heading`/`type.body`.
+The reference contains **two distinct radar/spider charts.** They are not the same component at two sizes — they plot different axis sets and different data.
 
-| Candidate element | Include? | Reasoning |
-|---|---|---|
-| Logo, title, user name, generation date | ✅ Include | Baseline requirement, unchanged |
-| De-emphasized reference code | 🔵 Include | Support/reference value; rendered in `type.numeral`, `ink.muted` — never the raw internal analysis ID |
-| Front Face hero image | 🔵 Optional | A Phase 2 extension enabled by the validated seven-pose set; if rejected, the cover reverts to a photo-free treatment with no other impact |
-| Overall score, confidence, or synthesis sentence | ❌ Exclude | These belong on the Overview page (§5); putting them on the cover would fragment the Overview into two places |
+### 12.1 Harmony Profile (Dashboard only)
 
-**Meridian-specific treatment:** the cover uses exactly one accent touch — a single `accent.primary` rule (a thin horizontal divider beneath the title) — and nothing else on the page carries color beyond `ink.primary` on `surface.paper`. This is a visibly different cover *treatment* from a prior pass that might use a full-bleed hero photo as its primary device; here restraint itself is the differentiator. 🔵
+- **6 axes**, abbreviated labels observed: Har(mony), Sym(metry), Smo(othness), Jaw, Skin, Vol(ume).
+- **One series** (single teal-green outline/fill).
+- No numeric value labels at vertices in the observed render — 🔵 recommend adding them (consistent with this project's general non-color-only-signaling accessibility rule, §18) even though the reference omits them.
+- Appears only on the Dashboard, not in the PDF.
 
-**Do not expose:** internal database IDs, storage keys, CV model or vendor names, or internal scoring signals — unchanged hard rule.
+### 12.2 Projected Potential vs. Client Values (PDF "Protocol" page only)
 
----
+- **11 axes**, one per feature, full names (Hair, Brows, Eyes, Nose, Cheeks, Jaw, Lips, Chin, Skin, Neck, Ears).
+- **Two series**, overlaid, with a legend: "Projected Potential" (lighter/teal fill) and "Client Values" (darker outline).
+- Appears only on the PDF's overview page, not on the Dashboard.
 
-## 5. Overall Score Presentation
+### 12.3 Governing Rule (carried forward, unchanged in substance from the retired Meridian spec)
 
-Authority: score meaning and payment visibility are fixed upstream (`PHASE2_SCORING_SPEC.md` §4/§11/§14–15; `PHASE2_REQUIREMENTS_ANALYSIS.md` §11; `PHASE2_API_SPEC.md` §13/§22.1) and are not renegotiated by a visual redesign.
-
-### 5.1 What Is Shown
-
-- **Overall score** — a large `type.numeral` figure in `accent.primary`, on a 0–100 scale pending final confirmation (🔴, unresolved upstream regardless of visual system — see §25).
-- **Overall confidence** — the Confidence Indicator glyph (§1.6) plus its text label, positioned adjacent to but visually separated from the score numeral by a vertical rule — never merged into a single figure like "74 (85%)".
-- **Interpretation text** — a short synthesis sentence in `type.body`; its exact wording is a `PHASE2_REPORT_TEMPLATE.md` content concern, not this document's.
-- **Scoring version** — never prominent; if surfaced at all, it lives in the footer's existing metadata line in `ink.muted`, `type.numeral`.
-
-### 5.2 Hard Rules (unchanged in substance, restated against Meridian tokens)
-
-- Score and confidence are never visually collapsed into one number.
-- No star ratings, beauty iconography, or superlative badge copy — Meridian's icon system (§1.4) has no "beauty" glyph and none may be introduced.
-- A missing overall score (legacy analyses) simply omits the score element; the interpretation sentence stands alone.
-- Low-score framing never borrows `state.reserved` (rust) — that token is reserved exclusively for the Alert/Flag Card's professional-referral use (§15.2). A modest score uses neutral `ink.primary`/`ink.muted`, never a "warning" color.
-
-### 5.3 Payment Visibility
-
-✅ Confirmed: overall score and confidence render pre-payment. See §14 for the full gating table.
+Both charts remain a pure presentation layer over authoritative scoring data. Neither chart computes, estimates, or fills in a missing value; a `null`/non-scorable axis is never plotted as `0`. This rule is not weakened by adopting the reference's exact visual treatment.
 
 ---
 
-## 6. The Harmony Chart
+## 13. Tables
 
-Authority: `PHASE2_REQUIREMENTS_ANALYSIS.md` §11; `PHASE2_SCORING_SPEC.md` §20; `PHASE2_API_SPEC.md` §17.
+### 13.1 Priority Features to Improve (Dashboard)
 
-### 6.1 Purpose and the Non-Negotiable Boundary
+Rows: feature name, score `/100`, short qualitative label, 1–3 attribute sub-rows (attribute name + plain-language value). Shows only the *lowest-scoring* subset of the eleven features, not all eleven — 🔴 exact selection cutoff (bottom N, or below a score threshold) is not evidenced by the reference; a scoring-layer decision, not a design one.
 
-Unchanged: the chart is a pure presentation layer over `scoring.feature_scores`. It never computes, estimates, normalizes, or fills in a value. A `null` score is never plotted as `0`, and no synthetic value is invented to keep the shape looking complete. This governs every visual choice below and cannot be overridden by a layout preference.
+### 13.2 Feature Evaluation (Dashboard, bottom, full-width)
 
-### 6.2 Meridian's Rendering Choice
+Columns: **Zone**, **Finding**, **Reference**. Rows observed: Forehead, Eyes, Nose, Lips, Jawline — a shorter, differently-grouped list than the eleven-feature set (e.g. "Jawline" and "Forehead" rather than "Jaw" and "Hair"). 🔴 Whether this table's "Zone" list is a fixed different taxonomy from the eleven report features, or a configurable subset, is not resolved by the reference and should be confirmed against the scoring layer's actual zone/measurement vocabulary before implementation.
 
-🔵 The chart renders as a radar/polygon using `accent.secondary` (juniper) for its outline and fill, at low fill-opacity, with `type.numeral` value labels at each vertex — never left for the reader to infer from shape alone. An axis with no numeric score (structurally non-scorable, or insufficient evidence for this analysis) renders as a hollow, dashed vertex in `ink.muted` with a short non-numeric label, never plotted at the origin (which would read as the worst possible score) and never given a numeric-looking position.
+### 13.3 Hair Loss Scale (Hair page only)
 
-Axis labels use full feature-area names, never abbreviations. Which features receive an axis at all remains governed by the finalized scoring methodology (🔴, open upstream — see §25); this document does not pre-decide the scorable-feature set.
-
-### 6.3 Surface Behavior
-
-| Surface | Behavior |
-|---|---|
-| Web | Interactive — hover/tap surfaces feature name, score, and Confidence Indicator in a tooltip |
-| PDF | Static — every value (or its unavailable-state label) is a permanent adjacent label |
-| Mobile | Compact label pattern (icon + abbreviated tap target) rather than shrinking or truncating names below the accessible minimum |
-| Accessibility | A text/tabular equivalent (feature → score-or-unavailable-state → confidence) always accompanies the chart |
-
-### 6.4 Payment Visibility
-
-✅ Confirmed: pre-payment the chart renders as a locked, generic (non-data-bearing) placeholder shape in `surface.recessed` — never a low-opacity rendering of real values, which would leak data through the blur. Post-payment, the full chart renders from complete `feature_scores`.
+A horizontal strip of seven small illustrated head icons, left-to-right, labeled at three points along the strip: "Normal" (left), "Need Attention" (center), "Extreme" (right). The icon matching the subject's current stage is boxed/highlighted (a colored border). This is the only illustrated (non-photographic, non-chart) component in the entire report.
 
 ---
 
-## 7. Multi-Pose Evidence Overview
+## 14. Treatment Protocol Card (Dashboard, right column)
 
-Authority: `PHASE2_REQUIREMENTS_ANALYSIS.md` §6 (seven mandatory poses, fixed and unchanged: Front Face, Left Profile, Right Profile, Left 45°, Right 45°, Smile, Top of Head).
+✅ Confirmed. A single visible phase card (the reference shows Phase 01 only — whether additional phases exist and are scrollable/paginated is not observable from a static reference, 🔴):
 
-### 7.1 Meridian's Layout
+- `PHASE 01` label in `accent.primary`
+- Phase title (e.g. "Foundation & Photoprotection")
+- A duration/timing line (e.g. "Immediate–Weeks 1-12")
+- A short bullet list of the specific driving findings (e.g. "Skin–Evenness: Noticeably uneven")
+- A closing paragraph synthesizing why this phase comes first, in prose
 
-🔵 Rather than a uniform contact-sheet grid, Meridian gives Front Face a distinct, larger tile (it is the pose most feature sections reference) and arranges the remaining six as a smaller uniform row beneath it — a "hero plus strip" layout rather than a flat 2-row grid. This is a minor, genuinely different layout decision from a flat grid, while preserving the same seven images, same captions, and same "Original Photo" category badge (§9).
-
-Each tile carries the Original Evidence badge (§9.1) in the corner using `accent.secondary` on a small `surface.card` chip — the single, consistent visual marker that recurs on every original-evidence image throughout the report.
-
-### 7.2 Responsive / PDF Behavior
-
-| Surface | Behavior |
-|---|---|
-| Desktop | Hero tile + 2×3 strip |
-| Mobile | Hero tile full-width, strip becomes a 2-column stack |
-| PDF | Kept to one page at legible size where possible; otherwise split across two adjacent pages along the strip boundary, never mid-row |
-
-### 7.3 Hard Boundary
-
-This gallery contains **only** original validated pose images — no crops, no annotations, no AI-generated content, and it does not imply that every feature section must display all seven images (§8.2 defines the feature-appropriate subset).
+🔴 Whether later phases (Phase 02, 03…) exist in the full product and are simply not visible in this sample, or whether this build only produces one phase, is not evidenced by the reference and should be confirmed against `PHASE2_REQUIREMENTS_ANALYSIS.md` §2.1 (which documents a live-app sample showing three phases) before scoping implementation — see §20 item 3.
 
 ---
 
-## 8. Feature Section Design
+## 15. Facial Age Component (Dashboard)
 
-Authority: `PHASE2_REQUIREMENTS_ANALYSIS.md` §8 (pose-to-feature traceability), §10.
-
-### 8.1 Reusable Structure
-
-Extends the same nine-part structure the project has already established for a feature section — header, score/status card, summary, detailed findings, relevant evidence, optional derived visuals, multi-angle notes, recommendations, optional Before/After — with every visual element now drawing from §1's tokens. No new field is invented and none is removed; this section's job is presentation, not content architecture (that belongs to `PHASE2_REPORT_TEMPLATE.md`).
-
-### 8.2 Feature-Appropriate Evidence (reproduced verbatim in mapping, unchanged)
-
-| Feature | Relevant pose(s) |
-|---|---|
-| Hair | Front Face + Top of Head |
-| Brows | Front Face + Left/Right 45° (where useful) |
-| Eyes | Front Face + Left/Right 45° + Smile (where useful) |
-| Nose | Front Face + Left Profile + Right Profile + 45° views (where useful) |
-| Cheeks | Front Face + Left/Right 45° |
-| Jaw | Front Face + Left/Right Profiles + Left/Right 45° |
-| Lips | Front Face + Smile + Profile views (where relevant) |
-| Chin | Front Face + Left/Right Profiles |
-| Skin | Multiple usable facial views |
-| Neck | Front Face + Left/Right Profiles |
-| Ears | Left Profile + Right Profile |
-
-This table is a presentation-layer restatement only; it does not define or constrain CV algorithms or measurement routing. If a pose is unavailable for a specific analysis, it is simply omitted from that section's evidence strip — this never blocks the section from rendering (§21).
-
-### 8.3 Meridian's Feature Header Treatment
-
-🔵 Each feature section opens with a compact header bar: the feature's single icon (from §1.4's one library) in `accent.secondary`, the feature name in `type.heading`, and — only where elevated — a Priority badge using `ink.primary` text on `surface.recessed`, never a loud color, consistent with the project's existing "descriptive, not alarming" tone requirement.
-
-### 8.4 Sections Are Not Uniform
-
-A section with no derived evidence and no Before/After eligibility is still complete — unchanged rule. Sections are not required to have identical asset counts.
+A numeral plus a horizontal slider with labeled min/max endpoints and a single pointer at the estimated value. Presented as a finding, not a projection — no "before/after age" or future-age state is shown anywhere in the PDF or Dashboard reference (that concept, if it exists, belongs to a separate "Healthy aging" feature already flagged elsewhere in this project's analysis as its own open item, not this report). See §20 item 4.
 
 ---
 
-## 9. Evidence Categories
+## 16. Payment Gating / Locked States
 
-Authority: this is the single most load-bearing visual rule in the document — it is the mechanism that prevents a reader from mistaking a generated image for measured evidence, per `PHASE2_REQUIREMENTS_ANALYSIS.md` §12's confirmed constraint.
-
-### 9.1 The Three Categories and Their Meridian Badges
-
-| Category | Source | Badge treatment |
-|---|---|---|
-| **A. Original Evidence** | The seven validated pose images | A small corner chip, `accent.secondary` on `surface.card`, icon + "Original Photo" label (exact copy 🔴, open — see §25) |
-| **B. Derived Evidence** | Optional crops/annotations | Same chip shape, `ink.muted` on `surface.recessed` — a visually *quieter* badge than category A, signaling "a view of the original," always captioned with its source pose |
-| **C. AI-Generated Visualization** | Before/After "After" images | A **persistent, high-contrast band** — not a corner chip — spanning the full width of the image, `surface.card` text on `accent.primary`, the only place in the entire system where `accent.primary` appears on something other than the overall score or a CTA. This deliberate exception is what makes category C unmistakable: it is visually louder than every other element in the report by design. |
-
-Category C's badge treatment breaking the accent-scarcity rule (§1.5) on purpose is Meridian's clearest structural safety decision: the AI-generation disclosure is engineered to be the single most visually prominent non-score element on any page it appears on, never something a reader could crop out or overlook.
-
-### 9.2 The Core Rule (unchanged)
-
-The user must never reasonably mistake an AI-generated visualization for original evidence. Category A and B assets never borrow category C's badge treatment, even decoratively, and the three categories are never merged into one undifferentiated image gallery.
+🔴 **Not addressed by this document.** The reference is a fully-unlocked sample export — it shows no locked, blurred, paywalled, or partial-preview state anywhere. `api-specification.md`'s existing gating contract remains the sole authority for what renders pre- vs. post-payment; this document describes only the fully-unlocked presentation. A locked-state visual treatment (what a Priority Features table, a Treatment Protocol card, or a feature page looks like pre-payment) still needs to be designed and is explicitly out of scope here.
 
 ---
 
-## 10. Feature Score States
+## 17. Capture Model / Photo-Angle Count — Explicitly Not Resolved Here
 
-Authority: `PHASE2_SCORING_SPEC.md` §12/§15/§16/§20; `PHASE2_API_SPEC.md` §15.2/§16.
-
-### 10.1 The Three States
-
-| State | Meaning | Meridian presentation |
-|---|---|---|
-| **Scorable with score** | Numeric score + confidence exist | `type.numeral` score in `ink.primary` (not `accent.primary` — accent is reserved for the overall score only, §1.5) + Confidence Indicator glyph |
-| **Structurally non-scorable** | No validated methodology exists for this feature at all | A hollow-dot glyph with a neutral, non-numeric label — never blank, never `0` |
-| **Scorable, insufficient evidence** | Methodology exists; this analysis's evidence was insufficient | A distinct dashed-outline treatment, visually different from the structural case above |
-
-Exact copy for both non-numeric states is 🔴 open upstream (see §25); this document fixes only that the two states are visually and textually distinguishable from each other and from a scored state.
-
-### 10.2 Hard Rules
-
-- A missing score never renders as `0`, an empty progress element, or blank space.
-- All eleven sections render regardless of `scoring_status`.
-- Confidence only appears alongside an actual score — a non-scorable or insufficient-evidence state shows no confidence glyph at all.
+This document does not take a position on the "3-angle" vs. "seven-pose" question carried across the retired Meridian spec's two Reconciliation Notes. The reference report's photography (frontal, profile, multiple tight crops, a split-face composite, a top-down hairline shot) is consistent with either a small confirmed capture set augmented by CV-driven crops/composites, or a richer capture set — it does not by itself prove either. `photo_capture_spec.md` (`ASM-005`) remains the sole authority on how many angles are actually captured; this document only specifies how the *resulting* photo evidence should be labeled and laid out (§11) once captured.
 
 ---
 
-## 11. Derived Crops and Annotations
+## 18. Accessibility (carried forward, unchanged in substance)
 
-Authority: `PHASE2_API_SPEC.md` §19.1 (optional, P1).
-
-Rendered per §9.1's category B badge. The design must render correctly for every combination — none, crop only, annotation only, both, or a different mix per feature. **Missing derived evidence must never produce a placeholder, an error state, or broken spacing** — the section's evidence strip simply contains fewer tiles; the layout adapts rather than reserving empty space for an asset that does not exist. This is never blocking for report generation, PDF generation, payment unlock, or section rendering.
-
----
-
-## 12. Before/After Visualization
-
-Authority: `PHASE2_REQUIREMENTS_ANALYSIS.md` §12; `PHASE2_API_SPEC.md` §20–21.
-
-### 12.1 Selectivity
-
-Shown only for features present in `before_after_available_features` — a feature with no eligible cosmetic recommendation simply has no Before/After block, not a "not applicable" placeholder. The rest of that feature's section is fully present regardless.
-
-### 12.2 Meridian's Layout
-
-- **Before** — reuses the same Original Photo tile already established for that feature (§9.1-A), not a re-fetched asset.
-- **After** — carries the full-width category-C band (§9.1) at all times, plus a short caption reinforcing "illustrative, not guaranteed."
-- **Desktop:** side-by-side, equal frames, a single `accent.secondary` divider rule between them labeled "Before" / "After" in `type.numeral`-style small caps for visual distinction from body copy.
-- **Mobile:** stacked, Before above After, same labels.
-- **PDF:** kept together as one unbreakable unit across a page break.
-
-### 12.3 Generation States
-
-| State | Presentation |
-|---|---|
-| Pending/generating | A small inline indicator; rest of the section fully visible and unaffected |
-| Generated | Full comparison per §12.2 |
-| Failed | An isolated, short, non-alarming note scoped to that block only — never implies the analysis itself failed, and never propagates any warning styling outside that one block |
-
-### 12.4 Payment Visibility
-
-✅ Confirmed: pre-payment, Before/After shows only a locked preview signal — both frames obscured behind `surface.recessed`, no images, no generation status.
+- Every chart (§12) needs a text/tabular equivalent regardless of visual treatment.
+- No state may be communicated by color alone — the reference's own restraint (chips are label-plus-text, not color-coded) already satisfies this; do not introduce a color-only score/status signal when implementing.
+- All body/heading color pairs must meet WCAG AA contrast on their observed backgrounds once exact tokens (§3.1) are finalized.
+- Every photo needs alt text describing what it shows (not a category label repeated verbatim from its badge chip).
 
 ---
 
-## 13. Locked / Unlocked Presentation
+## 19. Non-Goals
 
-Authority: `PHASE2_API_SPEC.md` §22.1.
-
-### 13.1 Gating Table
-
-| Content | Pre-payment | Post-payment |
-|---|---|---|
-| Overall score / confidence | ✅ Visible | ✅ Visible |
-| Feature-level scores | 🔒 Locked | ✅ Full |
-| Harmony chart | 🔒 Generic locked placeholder | ✅ Full |
-| Detailed written analysis (11 features) | 🔒 Locked | ✅ Full |
-| Before/After | 🔒 Locked preview signal only | ✅ Full |
-| Original/derived visual evidence | 🔴 Not resolved upstream — this document follows the conservative default (locked pre-payment) pending confirmation | ✅ Full |
-| PDF download | 🔒 Locked | ✅ Available |
-
-### 13.2 Meridian's Locked-State Treatment
-
-Every locked element uses `surface.recessed` fill plus a lock glyph (from the single icon library, §1.4) **and** a short text label — never blur or color alone, per §20. A locked chart is a generic, non-data-bearing polygon shape, never an obscured rendering of the true values (§6.4). A locked score shows the lock glyph in place of a numeral, never a fabricated placeholder number.
-
-### 13.3 Non-Leakage Principle
-
-No locked-state treatment may partially expose real data through low-opacity rendering, size hints, or shape that approximates the true value.
+This document does not define: database schema, API endpoints, scoring formulas, CV algorithms, the capture-angle count (§17), payment-gating behavior (§16), image-generation vendor/pipeline, or frontend implementation code.
 
 ---
 
-## 14. Recommendation Presentation
+## 20. Open Design Questions
 
-Authority: `PHASE2_REQUIREMENTS_ANALYSIS.md` §13.
-
-Unchanged three-tier system (Priority / Recommended / Consider), presented through the existing Recommendation Card, restyled with §1 tokens. The design must never, through iconography or color, frame a recommendation as diagnosis, surgical planning, disease detection, or a guaranteed outcome — no clipboard/stethoscope icon exists in Meridian's one library, and `state.reserved` (rust) is reserved exclusively for the Alert/Flag Card's "raise with a professional" framing, never for cosmetic-recommendation emphasis. No phased "Stage 1 / Stage 2" clinical-journey structure is introduced.
-
----
-
-## 15. Closing Summary
-
-The existing four fixed categories (Key Takeaways, Strengths, Areas for Improvement, Next Steps) are unchanged and sufficient. Any use of scoring data to inform which items surface draws only from already-computed `feature_scores`/`overall_score_contributing_features` — no new ranking formula is defined here. "Areas for Improvement" uses descriptive framing (never "Top weaknesses" or similarly deficit-focused language), consistent with the calm, non-alarmist tone this whole system is built around.
-
----
-
-## 16. Web Report Design
-
-### 16.1 Layout
-
-A single centered content column (unchanged 2-column ceiling), reflowed for screen.
-
-### 16.2 Meridian's Three-Pass Navigation (new, tied to §3.1)
-
-🔵 A sticky navigation strip groups by the three reading passes defined in §3.1 — **Orientation / Depth / Synthesis** — rather than listing all eleven feature names individually, which keeps the navigation short and legible even as the report grows to eighteen-plus sections. Clicking "Depth" expands the eleven feature names as a sub-list.
-
-### 16.3 Behavior
-
-| Element | Behavior |
-|---|---|
-| Evidence gallery | Hero + strip on desktop (§7.1), stacked on mobile |
-| Chart | Interactive on web, static in PDF |
-| Before/After | Side-by-side desktop, stacked mobile |
-| Locked states | Rendered inline in normal page position — the reader sees the report's real shape and length |
-| Missing optional assets | Section renders with only what exists, no reserved empty space |
+1. **Exact color/type tokens (§3)** — approximated from the reference, not sampled from real assets; needs a design-review pass.
+2. **AI-generation disclosure copy for Before/After/Potential images (§11)** — the reference shows none, but this project's standing rule requires one; needs explicit confirmation that the rule still applies (it should).
+3. **Treatment Protocol — one phase or several (§14)** — the PDF/Dashboard sample shows only Phase 01; `PHASE2_REQUIREMENTS_ANALYSIS.md` §2.1 documents a separate live-app sample with three phases. Reconcile before implementation.
+4. **Facial Age — static finding or interactive/projected (§15)** — reference shows a single current-age read-out only.
+5. **Recommendation tier caption (§9.1)** — shown twice, both on the Hair page. Confirm whether it's a general per-section field or Hair-specific.
+6. **Priority Features / Feature Evaluation table selection logic (§13.1, §13.2)** — which features/zones qualify, and whether "Feature Evaluation"'s zone list (Forehead, Jawline, etc.) is a distinct taxonomy from the eleven report features.
+7. **Locked/pre-payment states (§16)** — entirely undesigned; the reference shows only the fully-unlocked view.
+8. **Responsive/mobile behavior (§17-equivalent)** — not evidenced; the reference is PDF and desktop-dashboard only.
 
 ---
 
-## 17. PDF Report Design
+## 21. Component Inventory
 
-Same page format, header/footer, disclaimer, and closing-page conventions as the established baseline. New pagination rules for Meridian-specific components:
-
-| Section | Rule |
-|---|---|
-| Overview (score + chart) | Chart and its legend never split across a page break |
-| Evidence overview | Hero tile plus strip kept together where legible; otherwise split along the strip boundary, never mid-row |
-| Feature sections | Never split a Recommendation Card; never orphan a Feature Header from its Score/Status Card; images stay with captions |
-| Before/After pairs | One unbreakable unit |
-| Score/Status Card in any non-numeric state | Never split from its Feature Header |
-
-No PDF-generation library or implementation technology is specified.
-
----
-
-## 18. Branding Discipline
-
-Meridian's tokens (§1) are the entire branding system — there is no second palette or icon set anywhere in the report. The accent-scarcity rule (§1.5) is the branding rule that most directly protects the report's calm tone: `accent.primary` never appears more than once per page's worth of load-bearing meaning, with the single documented exception of the category-C evidence badge (§9.1), which breaks scarcity on purpose as a safety mechanism, not a branding inconsistency.
-
----
-
-## 19. Component Inventory
-
-Conceptual only — no React components, filenames, or implementation tasks.
+Conceptual only — no filenames or implementation tasks.
 
 | Component | Responsibility |
 |---|---|
-| **ReportCover** | Title hierarchy, optional Front Face hero, single accent rule (§4) |
-| **OverallScoreCard** | Large numeral + interpretation text (§5) |
-| **ConfidenceIndicator** | The dot glyph + label, always paired with a score (§1.6, §5, §10) |
-| **HarmonyChart** | Radar rendering from `feature_scores`, unavailable-axis handling, text/tabular fallback (§6) |
-| **PoseEvidenceGallery** | Hero + strip seven-pose layout with Original Photo badges (§7) |
-| **FeatureSection** | The reusable per-feature container (§8) |
-| **FeatureScoreCard** | One feature's score/confidence or non-numeric state (§10) |
-| **EvidenceStrip** | The feature-scoped pose subset (§8.2) |
-| **DerivedEvidenceTile** | Optional crop/annotation, gracefully absent when none exists (§11) |
-| **BeforeAfterComparison** | The pair, with mandatory category-C banding and per-state handling (§12) |
-| **RecommendationCard** | Unchanged tiering, restyled (§14) |
-| **LockedContent** | Generic locked treatment, non-leaking (§13) |
-| **DisclaimerSection** | Standing disclaimer, extended inline labelling for Before/After |
-| **ReportFooter** | Metadata, optional `scoring_version` line |
+| **ReportDashboard** | Top-level Dashboard page, assembling everything in §4 |
+| **StatTileRow** | The 3-up Overall Score / Evaluated / Analysis Time tiles (§4.2, reused inside the identity card) |
+| **PriorityFeaturesTable** | §13.1 |
+| **FeatureEvaluationTable** | §13.2 |
+| **TreatmentProtocolCard** | §14 |
+| **FacialAgeSlider** | §15 |
+| **HarmonyRadarChart** | 6-axis, single-series chart (§12.1) |
+| **ProjectedPotentialRadarChart** | 11-axis, two-series chart (§12.2) |
+| **EvidencePhoto** | A single badge-chipped image, optionally with a line-overlay annotation (§11) |
+| **BeforeAfterPair** | Two `EvidencePhoto`s side by side, feature-scoped (§9.1) |
+| **HairLossScale** | The illustrated 7-stage strip (§13.3) |
+| **FeaturePage** | The reusable per-feature PDF page shell (§9.1) |
+| **SummaryCallout** | The sage-green per-feature synthesis box (§9.1) |
+| **ClosingRecommendations** | Page 16 (§10) |
+| **DisclaimerPrivacyPage** | Page 02 (§5) |
+| **IntroductionPage** | Page 03 (§6) |
+| **UnderstandingResultsPage** | Page 04 (§7) |
+| **ProtocolOverviewPage** | Page 05 (§8) |
 
 ---
 
-## 20. Accessibility
+## 22. Final Consistency Checklist
 
-- All Meridian tokens meet WCAG AA contrast on `surface.paper` and `surface.card`.
-- Confidence and score-state are never communicated by glyph or color alone — always paired with a text label (§1.6, §10).
-- The Harmony Chart always has a text/tabular fallback (§6.3).
-- Every image (original, derived, generated) has alt text carrying its category label so a screen-reader user gets the same A/B/C distinction a sighted reader gets from the badges in §9.1.
-- Locked elements always carry a text/icon lock indicator, never blur alone (§13.2).
-- The category-C band (§9.1) meets the same contrast and minimum-size rule as any other caption — it is never rendered in a low-contrast or decorative way that would undermine its disclosure purpose.
-- No color pair (e.g., green/red) alone communicates good/bad anywhere in the system — every state pairs color with text or an icon.
-
----
-
-## 21. Empty, Unavailable, and Failure States
-
-| State | Behavior |
-|---|---|
-| Feature score unavailable (either cause) | Distinct non-numeric treatment, section still renders fully (§10) |
-| No derived crop/annotation | Evidence strip simply omits it, no placeholder (§11) |
-| Feature not eligible for Before/After | Block absent entirely, not "not applicable" (§12.1) |
-| Before/After pending | Lightweight in-section indicator, rest of section unaffected (§12.3) |
-| Before/After failed | Isolated note, never implies report/analysis failure (§12.3) |
-| Legacy Phase 1 report | No Meridian scoring/chart/gallery/Before-After elements render at all — see §22 |
-
-**Governing principle:** the report must never look broken or failed when optional Phase 2 content is missing.
-
----
-
-## 22. Legacy Phase 1 Compatibility
-
-The report conditions its rendering on the `capture_model: "legacy" | "phase2"` discriminator. For `capture_model: "legacy"`, the report renders exactly per the existing, unmodified Phase 1 design — this document does not alter that rendering. A legacy report never shows a fabricated score, an empty chart, seven-pose placeholders, or Before/After placeholders. Phase 2/Meridian presentation activates only for `capture_model: "phase2"` — there is no partial/hybrid state.
-
----
-
-## 23. Design Traceability Matrix
-
-| Design Element | Source Requirement | Locked/Unlocked | Optional? |
-|---|---|---|---|
-| Overall score | `PHASE2_REQUIREMENTS_ANALYSIS.md` §11 | Visible pre-payment | No |
-| Confidence | `PHASE2_SCORING_SPEC.md` §15 | Visible pre-payment (overall only) | No — display form 🔴 open |
-| Feature scores | `PHASE2_SCORING_SPEC.md` §12 | Locked pre-payment | State always present; value may be absent |
-| Harmony chart | `PHASE2_REQUIREMENTS_ANALYSIS.md` §11 | Locked pre-payment | Yes (P1 visualization) |
-| 7-pose overview | `PHASE2_REQUIREMENTS_ANALYSIS.md` §6 | 🔴 Unresolved | No — all 7 mandatory |
-| 11 feature sections | `PHASE2_REQUIREMENTS_ANALYSIS.md` §3/§10 | Locked pre-payment (content) | No |
-| Derived crops/annotations | `PHASE2_REQUIREMENTS_ANALYSIS.md` §15 | Locked pre-payment | Yes |
-| Before/After | `PHASE2_REQUIREMENTS_ANALYSIS.md` §12 | Locked preview pre-payment | Yes, selective |
-| Recommendations | `PHASE2_REQUIREMENTS_ANALYSIS.md` §13 | Locked pre-payment | No |
-
----
-
-## 24. Non-Goals
-
-This document does not define: database schema, API endpoint implementation, scoring formulas, CV algorithms, pose validation thresholds, LLM prompts, exact report field paths, JSON data mapping, image-generation provider, PDF-generation library, frontend implementation code, or task-list entries.
-
----
-
-## 25. Open Design Questions
-
-Carried forward from upstream — a different visual system does not resolve a product decision that was never made:
-
-### 🔴 Requires product/stakeholder confirmation
-1. **Score scale (0–100 assumed).**
-2. **Confidence display wording and whether it is user-facing at all.**
-3. **Structurally-non-scorable label copy.**
-4. **Insufficient-evidence label copy.**
-5. **Exact evidence-category badge copy** ("Original Photo" etc. — Meridian fixes the *visual treatment* in §9.1, not the words).
-6. **Pre-payment visibility of original/derived visual evidence** — this document follows the conservative default.
-
-### 🔵 Meridian-specific, implementation-flexible
-7. Fixed vs. dynamic chart axis set, pending the finalized scorable-feature list.
-8. Hero-plus-strip evidence layout (§7.1) vs. a flat grid — a reasonable alternative, not the only valid one.
-9. Front Face hero image on the cover — omittable with no other impact.
-10. Exact typeface families under the four-role type system (§1.3).
-
-None of the above reopens an already-confirmed decision — the eleven feature areas, the seven poses, score meaning, and the non-clinical recommendation boundary all remain fixed.
-
----
-
-## 26. Relationship to Companion Documents
-
-```
-PHASE2_REPORT_DESIGN_SPEC.md   = visual/UX presentation, Meridian token system   (this document)
-PHASE2_REPORT_TEMPLATE.md       = content/narrative structure
-PHASE2_REPORT_DATA_MAPPING.md   = exact source/field mapping                     (future)
-PHASE2_SCORING_SPEC.md          = deterministic scoring methodology
-PHASE2_API_SPEC.md              = external/client-facing data contract
-```
-
----
-
-## 27. Final Consistency Check
-
-- [x] All 11 feature areas remain present.
-- [x] All 7 poses remain unchanged.
-- [x] Overall score meaning matches the scoring specification.
-- [x] Score and confidence remain visually separate throughout (§1.6, §5, §10).
-- [x] Missing score is never displayed as zero.
-- [x] The chart never calculates scores — presentation only.
-- [x] Non-scorable and insufficient-evidence states are distinctly labeled.
-- [x] Original, derived, and generated evidence remain visually distinct, with category C deliberately the loudest element in the system (§9.1).
-- [x] Before/After remains selective; failure never fails the report.
-- [x] Recommendations remain general/cosmetic, never clinical.
-- [x] Payment gating matches the API contract.
-- [x] No raw storage/database references are ever shown.
-- [x] Legacy Phase 1 reports remain fully compatible.
-- [x] Exactly one color/type/icon system (Meridian, §1) is used throughout — no second palette introduced anywhere in this document.
+- [x] All eleven feature areas remain present (`BR-008`/`BR-011`, Eyebrows+Eyes sharing one page).
+- [x] Every visual element traces to a directly observed page/component in the reference, or is explicitly flagged 🔵/🔴 where it doesn't.
+- [x] The capture-angle question is explicitly deferred, not silently resolved (§17).
+- [x] Payment-gating is explicitly out of scope, not silently assumed unlocked-by-default (§16).
+- [x] AI-generation disclosure is flagged as a gap to close, not dropped because the reference omits it (§11, §20 item 2).
+- [x] No raw internal field names, database IDs, or scoring-signal names appear anywhere in this document's own prose.
 - [x] No implementation code has been created in this document.
 
 ---
 
-*This document is a design/specification artifact only. It does not implement frontend components, generate PDF/rendering code, or modify application code, database, API, architecture, or scoring documents. It is subordinate in authority to `PHASE2_REQUIREMENTS_ANALYSIS.md`, `PHASE2_BRD.md`, `PHASE2_PRD.md`, `PHASE2_SCORING_SPEC.md`, `PHASE2_ARCHITECTURE.md`, `PHASE2_DATABASE.md`, and `PHASE2_API_SPEC.md`.*
+*This document is a design/specification artifact only. It does not implement frontend components, generate PDF/rendering code, or modify application code, database, API, architecture, or scoring documents. It is authorized directly by Nishant (2026-09-15) to treat `MyFace-Protocol-test-1 (3).pdf` as the binding visual/structural target, superseding the retired Meridian system.*
