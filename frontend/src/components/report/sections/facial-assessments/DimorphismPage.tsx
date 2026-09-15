@@ -16,20 +16,19 @@ export function DimorphismPage({ data }: { data: FacialAssessment }) {
       sliderRightLabel="Hyper Masculine"
     >
       {data.drivers && data.drivers.length > 0 ? (
-        <div className="space-y-1.5 pt-1">
+        <div className="max-w-md space-y-2 pt-1">
           <p className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: meridian.ink.muted }}>
             Top drivers
           </p>
-          <ul className="space-y-1.5 text-sm" style={{ color: meridian.ink.muted }}>
+          <div className="space-y-2.5">
             {data.drivers.map((driver) => (
-              <li key={driver.feature} className="flex justify-between gap-3">
-                <span>{FEATURE_LABELS[driver.feature] ?? driver.feature}</span>
-                <span className="shrink-0 font-medium tabular-nums" style={{ color: meridian.ink.primary }}>
-                  {Math.round(driver.score)}
-                </span>
-              </li>
+              <RegionalBalanceBar
+                key={driver.feature}
+                label={FEATURE_LABELS[driver.feature] ?? driver.feature}
+                score={driver.score}
+              />
             ))}
-          </ul>
+          </div>
         </div>
       ) : null}
 
@@ -38,7 +37,7 @@ export function DimorphismPage({ data }: { data: FacialAssessment }) {
           <p className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: meridian.ink.muted }}>
             Per-feature breakdown
           </p>
-          <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          <div className="grid max-w-2xl gap-x-5 gap-y-3 sm:grid-cols-2">
             {Object.entries(data.sub_scores).map(([feature, driver]) => (
               <RegionalBalanceBar key={feature} label={FEATURE_LABELS[feature] ?? feature} score={driver.score} />
             ))}

@@ -91,17 +91,27 @@ export function BeforeAfterBlock({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg" style={{ border: `1px solid ${meridian.surface.recessed}` }}>
+    <div
+      className="mx-auto w-full max-w-md overflow-hidden rounded-xl"
+      style={{ border: `1px solid ${meridian.surface.recessed}` }}
+    >
       <div className="grid grid-cols-2">
         <figure className="m-0">
           {beforeImageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- authenticated blob URL
-            <img src={beforeImageUrl} alt={`${featureLabel} before`} className="block h-full w-full object-cover" />
+            <img
+              src={beforeImageUrl}
+              alt={`${featureLabel} before`}
+              className="aspect-[4/5] w-full object-cover"
+            />
           ) : (
-            <div className="flex h-full min-h-24 items-center justify-center" style={{ backgroundColor: meridian.surface.recessed }} />
+            <div
+              className="flex aspect-[4/5] items-center justify-center"
+              style={{ backgroundColor: meridian.surface.recessed }}
+            />
           )}
           <figcaption
-            className="py-1 text-center text-[10px] font-medium tracking-[0.08em] uppercase"
+            className="py-1.5 text-center text-[10px] font-medium tracking-[0.08em] uppercase"
             style={{ color: meridian.ink.muted }}
           >
             Before
@@ -109,9 +119,13 @@ export function BeforeAfterBlock({
         </figure>
         <figure className="m-0 border-l" style={{ borderColor: meridian.surface.recessed }}>
           {/* eslint-disable-next-line @next/next/no-img-element -- authenticated blob URL */}
-          <img src={afterUrl} alt={`${featureLabel} after, AI-generated`} className="block h-full w-full object-cover" />
+          <img
+            src={afterUrl}
+            alt={`${featureLabel} after, AI-generated`}
+            className="aspect-[4/5] w-full object-cover"
+          />
           <figcaption
-            className="py-1 text-center text-[10px] font-medium tracking-[0.08em] uppercase"
+            className="py-1.5 text-center text-[10px] font-medium tracking-[0.08em] uppercase"
             style={{ color: meridian.ink.muted }}
           >
             After

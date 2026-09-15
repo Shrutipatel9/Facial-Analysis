@@ -45,11 +45,11 @@ export function FeatureSection({
           <span style={{ color: meridian.accent.secondary }}>{labelLower}</span>
         </h2>
         {data.summary_callout ? (
-          <p className="max-w-3xl text-sm leading-relaxed" style={{ color: meridian.ink.muted }}>
+          <p className="text-sm leading-relaxed" style={{ color: meridian.ink.muted }}>
             {data.summary_callout}
           </p>
         ) : (
-          <p className="max-w-3xl text-sm leading-relaxed" style={{ color: meridian.ink.muted }}>
+          <p className="text-sm leading-relaxed" style={{ color: meridian.ink.muted }}>
             {data.narrative.slice(0, 160)}
             {data.narrative.length > 160 ? "…" : ""}
           </p>
@@ -61,7 +61,7 @@ export function FeatureSection({
         <img
           src={imageUrl}
           alt={`${label} detail from your uploaded photo`}
-          className="max-h-40 w-auto rounded-lg object-cover"
+          className="h-40 w-auto max-w-full rounded-xl object-contain"
         />
       ) : null}
 

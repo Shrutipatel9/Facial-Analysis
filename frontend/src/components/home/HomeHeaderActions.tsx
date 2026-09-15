@@ -37,7 +37,7 @@ export function HomeHeaderActions({ report }: { report: ReportOut }) {
           No "Protocol #..." number: no such field exists in the data model,
           and the user's own name already shows in the header's profile
           pill -- repeating it here would just duplicate UserMenu. */}
-      <p className="text-sm text-muted-foreground">Your Protocol · Generated {formatDate(report.created_at)}</p>
+      <p className="text-sm text-muted-foreground">Your Facial Aanlysis Report · Generated {formatDate(report.created_at)}</p>
       <button
         type="button"
         onClick={() => void handleDownload()}

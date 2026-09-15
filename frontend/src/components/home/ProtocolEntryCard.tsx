@@ -16,7 +16,7 @@ export function ProtocolEntryCard({ report }: { report: ReportOut }) {
       <div className="space-y-1">
         <p className="text-2xl font-semibold tracking-tight">New</p>
         <p className="text-xs font-medium tracking-[0.14em] text-white/70 uppercase">
-          Protocol · {formatDate(report.created_at)}
+          FACIAL ANALYSIS · {formatDate(report.created_at)}
         </p>
       </div>
       <Button

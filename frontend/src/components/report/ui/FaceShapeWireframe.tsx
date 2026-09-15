@@ -1,5 +1,6 @@
 "use client"
 
+import { ReportPhotoFrame } from "./ReportPhotoFrame"
 import { meridian } from "@/lib/report/meridianTokens"
 import type { FacialAssessment } from "@/lib/reports/reportApi"
 
@@ -19,12 +20,23 @@ export function FaceShapeWireframe({ photoUrl, overlay }: { photoUrl: string | n
   const points = outline.map(([x, y]) => `${x * 100},${y * 100}`).join(" ")
 
   return (
-    <div className="relative overflow-hidden rounded-lg">
-      {/* eslint-disable-next-line @next/next/no-img-element -- authenticated blob URL */}
-      <img src={photoUrl} alt="Your uploaded photo with the face outline traced" className="block w-full" />
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 size-full" aria-hidden>
-        <polygon points={points} fill="none" stroke={meridian.accent.secondary} strokeWidth={0.4} />
-      </svg>
-    </div>
+    <ReportPhotoFrame>
+      <div className="relative">
+        {/* eslint-disable-next-line @next/next/no-img-element -- authenticated blob URL */}
+        <img
+          src={photoUrl}
+          alt="Your uploaded photo with the face outline traced"
+          className="block h-auto w-full object-contain"
+        />
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="pointer-events-none absolute inset-0 size-full"
+          aria-hidden
+        >
+          <polygon points={points} fill="none" stroke={meridian.accent.secondary} strokeWidth={0.4} />
+        </svg>
+      </div>
+    </ReportPhotoFrame>
   )
 }

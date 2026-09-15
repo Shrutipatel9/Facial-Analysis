@@ -198,7 +198,7 @@ function ReportContent({
   }, [report.id])
 
   return (
-    <div className="mx-auto w-full space-y-8 pb-6">
+    <div className="mx-auto w-full max-w-3xl space-y-8 pb-6">
       <IntroductionSection report={report} isDownloading={isDownloading} onDownload={onDownload} />
 
       <FacialAssessmentsSection full={full} />

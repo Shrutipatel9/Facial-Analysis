@@ -364,7 +364,9 @@ class TestReportPdf:
         # front matter (imported from report_pdf_service.py so this test
         # actually stays in sync when front matter grows, rather than
         # silently drifting the way a hardcoded number did before) +
-        # features + recommendations + appendix
+        # features (every one of the 11 always starts its own fresh page,
+        # per explicit client instruction -- no shared pages) +
+        # recommendations + appendix
         expected_pages = _FRONT_MATTER_PAGE_COUNT + len(ANALYSIS_FEATURES) + 1 + 1
         assert len(page_objects) == expected_pages
 

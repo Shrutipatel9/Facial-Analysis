@@ -247,7 +247,12 @@ async def get_or_generate_pdf(db: AsyncSession, user_id: uuid.UUID, report_id: u
 
     images = await _load_all_feature_images(db, report.id)
     visuals = await _load_all_feature_visuals(db, report.id)
-    pdf_bytes = render_pdf(report, user, images, visuals)
+    # The subject's own uncropped front-angle photo -- distinct from
+    # `images` (per-feature crops) -- for the "Your Protocol" overview
+    # page's portrait. None (never a placeholder) if the front photo is
+    # somehow unavailable for this account.
+    front_photo = (await _load_front_photo(db, user_id)).get("front")
+    pdf_bytes = render_pdf(report, user, images, visuals, front_photo=front_photo)
 
     if blob is not None:
         # `reference` is a stable, report-derived id (not content-addressed)

@@ -32,6 +32,8 @@ palette/branding -- unchanged, only page structure/content moved.
 """
 
 import io
+import math
+from pathlib import Path
 from typing import Any
 
 from PIL import Image as PILImage
@@ -40,13 +42,40 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
-from reportlab.platypus import Flowable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    Flowable,
+    KeepTogether,
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 from reportlab.platypus import Image as RLImage
 
 from app.models.report import Report
 from app.models.user import User
 from app.services.facial_measurement_service import ANALYSIS_FEATURES
+
+# Geist (SIL Open Font License -- app/assets/fonts/OFL.txt), the same
+# typeface the web app uses (frontend/src/app/globals.css's --font-sans /
+# next/font/google's Geist import) -- statically instanced once from
+# Google Fonts' variable-font source at the weights this report actually
+# uses (fonttools varLib.instancer; see the module docstring's design-round
+# note) rather than embedded as a variable font, since ReportLab has no
+# variable-font axis support and needs one static face per weight.
+# Registered under the family name "Geist" (not a per-weight name) with
+# registerFontFamily below so inline `<b>...</b>` markup inside a Paragraph
+# resolves to the bold face automatically, the same as it would for a
+# built-in base-14 font.
+_FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+for _weight_name in ("Regular", "Medium", "SemiBold", "Bold", "Black"):
+    pdfmetrics.registerFont(TTFont(f"Geist-{_weight_name}", str(_FONT_DIR / f"Geist-{_weight_name}.ttf")))
+pdfmetrics.registerFontFamily("Geist", normal="Geist-Regular", bold="Geist-Bold")
 
 # App theme tokens (frontend/src/app/globals.css `:root`), converted from
 # OKLCH to sRGB hex -- keeps the PDF visually consistent with the web app
@@ -57,6 +86,12 @@ _INK_MUTED = colors.HexColor("#5A6668")  # --muted-foreground
 _ACCENT = colors.HexColor("#4E7A82")  # --primary
 _RECESSED = colors.HexColor("#D7E0E2")  # --border
 _CALLOUT_BG = colors.HexColor("#E7EEF0")  # light tint of _ACCENT, for the per-feature Summary callout box
+# A visibly different tint from _CALLOUT_BG -- deliberately so the "At a
+# Glance" attribute box (AI-classified qualitative readings) never reads as
+# the same kind of element as the Measurements table (raw CV numbers) above
+# it or the Summary callout (closing synthesis) below it on the same page.
+_ATTRIBUTE_BG = colors.HexColor("#F2EFE7")
+_HAIR_LOSS_STAGE_FILL = colors.HexColor("#F6E9DE")  # light tint of a caution/amber tone, current-stage marker only
 
 _PAGE_SIZE = LETTER
 _MARGIN = 0.85 * inch
@@ -96,7 +131,9 @@ _PRIVACY_POLICY = (
 # page count is a safe compile-time constant rather than something computed
 # at render time. report_template.md v3.0's page map folds the prior
 # round's separate "About This Report" and "Table of Contents" pages into
-# one combined Introduction page, so this drops 8->6.
+# one combined Introduction page, so this drops 8->6, then 6->7 when the
+# Overview page (_overview_flowables) was added per client instruction
+# 2026-09-15.
 # tests/integration/test_report_flow.py's TestReportPdf::test_pdf_is_not_
 # duplicated imports this constant directly (rather than hardcoding its own
 # copy of the number, a real drift this constant already caused once) to
@@ -106,8 +143,12 @@ _PRIVACY_POLICY = (
 # overflow onto a second physical page for a long real account even though
 # the test suite's short synthetic fixtures never do -- so their Table of
 # Contents labels are resolved via a two-pass render (_PageMarker /
-# render_pdf's docstring), not arithmetic.
-_FRONT_MATTER_PAGE_COUNT = 6
+# render_pdf's docstring), not arithmetic. Overview shares that same risk
+# in principle (its Priority Features list and Treatment Protocol length
+# both vary per report) but its content was sized to comfortably fit one
+# page in practice, unlike feature pages where overflow is common with
+# real (non-synthetic) narrative length.
+_FRONT_MATTER_PAGE_COUNT = 7
 
 # Named front-matter page positions (1-indexed), matching render_pdf()'s
 # exact story order below -- used by _introduction_flowables' Contents list
@@ -118,7 +159,8 @@ _FRONT_MATTER_PAGE_COUNT = 6
 _PAGE_UNDERSTANDING = 4
 _PAGE_PROTOCOL_OVERVIEW = 5
 _PAGE_FACIAL_ASSESSMENTS = 6
-assert _PAGE_FACIAL_ASSESSMENTS == _FRONT_MATTER_PAGE_COUNT  # the last front-matter page is always this constant
+_PAGE_OVERVIEW = 7
+assert _PAGE_OVERVIEW == _FRONT_MATTER_PAGE_COUNT  # the last front-matter page is always this constant
 
 
 def _to_roman(num: int) -> str:
@@ -132,13 +174,14 @@ def _to_roman(num: int) -> str:
 
 
 def _draw_wordmark(canvas: Canvas, x: float, y: float, size: float, center: bool = False) -> None:
-    """Renders "FaceIQ" matching Logo.tsx: "Face" semibold + "IQ" black.
-    ReportLab's base-14 fonts have no true black/900 weight, so "IQ" is
-    faux-bolded with a tiny double-strike offset -- a standard technique
-    for approximating a heavier weight without embedding a custom font."""
+    """Renders "FaceIQ" matching Logo.tsx exactly: "Face" in Geist SemiBold
+    (font-semibold, 600) + "IQ" in Geist Black (font-black, 900) -- both
+    real static weights of the same font the web app uses, not a faux-bold
+    approximation (the previous round's double-strike trick was a
+    workaround for base-14 Helvetica having no 900 weight at all)."""
     canvas.saveState()
     canvas.setFillColor(_INK)
-    face_font, iq_font = "Helvetica-Bold", "Helvetica-Bold"
+    face_font, iq_font = "Geist-SemiBold", "Geist-Black"
     face_width = canvas.stringWidth("Face", face_font, size)
     iq_width = canvas.stringWidth("IQ", iq_font, size)
     total_width = face_width + iq_width
@@ -147,9 +190,7 @@ def _draw_wordmark(canvas: Canvas, x: float, y: float, size: float, center: bool
     canvas.setFont(face_font, size)
     canvas.drawString(start_x, y, "Face")
     canvas.setFont(iq_font, size)
-    iq_x = start_x + face_width
-    canvas.drawString(iq_x, y, "IQ")
-    canvas.drawString(iq_x + 0.3, y, "IQ")  # faux-bold double-strike
+    canvas.drawString(start_x + face_width, y, "IQ")
     canvas.restoreState()
 
 
@@ -278,50 +319,192 @@ _TIER_LABELS = {
 }
 
 
+class _AccentRule(Flowable):
+    """A short brand-teal rule under a page's h1 -- a small structural
+    accent (not new content) so a page's primary heading is anchored by
+    color, not just size/weight, echoing the app's own use of _ACCENT as a
+    focal color rather than a purely monochrome heading. Sized to be
+    height-neutral against the previous plain h1 spacing (see _heading1)."""
+
+    def __init__(self, width: float = 0.5 * inch, thickness: float = 2.2, color: Any = None) -> None:
+        super().__init__()
+        self.width = width
+        self.thickness = thickness
+        self.color = color or _ACCENT
+        self.height = thickness
+
+    def wrap(self, _available_width: float, _available_height: float) -> tuple[float, float]:
+        return (self.width, self.height)
+
+    def draw(self) -> None:
+        self.canv.saveState()
+        self.canv.setFillColor(self.color)
+        self.canv.rect(0, 0, self.width, self.thickness, fill=1, stroke=0)
+        self.canv.restoreState()
+
+
+def _heading1(text: str, styles: dict[str, ParagraphStyle]) -> list[Any]:
+    """Every page-level h1 goes through this (not a bare Paragraph) so the
+    accent-rule treatment is applied once, consistently, everywhere --
+    see _AccentRule's docstring for why the rule + spacer below are sized
+    to land at the same total height as the old plain-h1 spaceAfter."""
+    return [Paragraph(text, styles["h1"]), _AccentRule(), Spacer(1, 5)]
+
+
 def _styles() -> dict[str, ParagraphStyle]:
+    """Every style below sets fontName explicitly to a Geist face rather
+    than inheriting getSampleStyleSheet()'s Helvetica default -- Geist is
+    the app's own typeface (see this module's font-registration block up
+    top), and the weight chosen per style is a deliberate hierarchy (Bold
+    for primary headings, SemiBold for secondary ones and callout labels,
+    Medium for small emphasis/label text, Regular for body copy) rather
+    than leaning on size alone to separate them. "attribute_line" is the
+    one body-weight style that uses inline `<b>` markup (see
+    _attributes_flowables) -- registerFontFamily above lets ReportLab
+    resolve a `<b>` span back to Geist-Bold from its base Geist-Regular
+    fontName automatically, the same as it would for a built-in font."""
     base = getSampleStyleSheet()
     return {
         "cover_title": ParagraphStyle(
-            "CoverTitle", parent=base["Title"], textColor=_INK, fontSize=26, leading=30, alignment=TA_CENTER
+            "CoverTitle",
+            parent=base["Title"],
+            fontName="Geist-Bold",
+            textColor=_INK,
+            fontSize=27,
+            leading=31,
+            alignment=TA_CENTER,
         ),
         "cover_subtitle": ParagraphStyle(
-            "CoverSubtitle", parent=base["Normal"], textColor=_ACCENT, fontSize=13, alignment=TA_CENTER, spaceBefore=6
+            "CoverSubtitle",
+            parent=base["Normal"],
+            fontName="Geist-Medium",
+            textColor=_ACCENT,
+            fontSize=13,
+            alignment=TA_CENTER,
+            spaceBefore=6,
         ),
         "cover_meta": ParagraphStyle(
-            "CoverMeta", parent=base["Normal"], textColor=_INK_MUTED, fontSize=9, alignment=TA_CENTER, spaceBefore=18
+            "CoverMeta",
+            parent=base["Normal"],
+            fontName="Geist-Regular",
+            textColor=_INK_MUTED,
+            fontSize=9,
+            alignment=TA_CENTER,
+            spaceBefore=18,
         ),
-        "h1": ParagraphStyle("H1", parent=base["Heading1"], textColor=_INK, fontSize=19, spaceAfter=10),
+        "h1": ParagraphStyle(
+            "H1", parent=base["Heading1"], fontName="Geist-Bold", textColor=_INK, fontSize=19, spaceAfter=2
+        ),
         "principle_number": ParagraphStyle(
-            "PrincipleNumber", parent=base["Normal"], textColor=_ACCENT, fontSize=16, leading=18, spaceBefore=6
+            "PrincipleNumber",
+            parent=base["Normal"],
+            fontName="Geist-Bold",
+            textColor=_ACCENT,
+            fontSize=16,
+            leading=18,
+            spaceBefore=6,
         ),
-        # spaceBefore/spaceAfter/leading tightened slightly from the pre-
-        # this-round values (10/4 and 14/8) to reclaim vertical room for the
-        # new per-feature Summary callout box added below -- without this,
-        # Skin (which has the longest Measurements table, 4 metrics vs other
-        # features' 1) overflows its feature page onto a second physical
-        # page. Applied globally rather than as a Skin-specific special case
+        # spaceBefore/spaceAfter/leading tightened twice now from the
+        # original values (10/4 and 14/8): once for the Summary callout box,
+        # and again here for the "At a Glance" attributes card + Hair Loss
+        # scale added this round -- both eat into the same per-feature page
+        # budget report_design_spec.md v3.0 §9.1 fixes at exactly one
+        # physical page per feature. Applied globally (not per-feature)
         # since the difference is barely perceptible and keeps every page's
         # styling uniform.
-        "h2": ParagraphStyle("H2", parent=base["Heading2"], textColor=_INK, fontSize=13, spaceBefore=7, spaceAfter=3),
-        "body": ParagraphStyle("Body", parent=base["BodyText"], textColor=_INK, fontSize=10, leading=13, spaceAfter=6),
-        "muted": ParagraphStyle("Muted", parent=base["BodyText"], textColor=_INK_MUTED, fontSize=8.5, leading=12),
-        "caption": ParagraphStyle(
-            "Caption", parent=base["BodyText"], textColor=_INK_MUTED, fontSize=8, leading=11, spaceAfter=6
+        "h2": ParagraphStyle(
+            "H2",
+            parent=base["Heading2"],
+            fontName="Geist-SemiBold",
+            textColor=_INK,
+            fontSize=13,
+            spaceBefore=6,
+            spaceAfter=2,
         ),
-        "table_cell": ParagraphStyle("TableCell", parent=base["BodyText"], textColor=_INK, fontSize=9, leading=12),
-        "table_head": ParagraphStyle("TableHead", parent=base["BodyText"], textColor=_ACCENT, fontSize=9.5, leading=12),
-        "toc_entry": ParagraphStyle("TocEntry", parent=base["BodyText"], textColor=_INK, fontSize=10.5, leading=18),
+        "body": ParagraphStyle(
+            "Body", parent=base["BodyText"], fontName="Geist-Regular", textColor=_INK, fontSize=9.5, leading=12.5,
+            spaceAfter=5,
+        ),
+        "muted": ParagraphStyle(
+            "Muted", parent=base["BodyText"], fontName="Geist-Regular", textColor=_INK_MUTED, fontSize=8.5, leading=12
+        ),
+        "caption": ParagraphStyle(
+            "Caption",
+            parent=base["BodyText"],
+            fontName="Geist-Regular",
+            textColor=_INK_MUTED,
+            fontSize=8,
+            leading=11,
+            spaceAfter=6,
+        ),
+        "table_cell": ParagraphStyle(
+            "TableCell", parent=base["BodyText"], fontName="Geist-Regular", textColor=_INK, fontSize=9, leading=12.5
+        ),
+        "table_head": ParagraphStyle(
+            "TableHead", parent=base["BodyText"], fontName="Geist-SemiBold", textColor=_ACCENT, fontSize=8.5,
+            leading=12,
+        ),
+        "toc_entry": ParagraphStyle(
+            "TocEntry", parent=base["BodyText"], fontName="Geist-Medium", textColor=_INK, fontSize=10.5, leading=18
+        ),
         "toc_page": ParagraphStyle(
-            "TocPage", parent=base["BodyText"], textColor=_INK_MUTED, fontSize=10.5, leading=18, alignment=TA_CENTER
+            "TocPage",
+            parent=base["BodyText"],
+            fontName="Geist-Regular",
+            textColor=_INK_MUTED,
+            fontSize=10.5,
+            leading=18,
+            alignment=TA_CENTER,
         ),
         "tier_caption": ParagraphStyle(
-            "TierCaption", parent=base["BodyText"], textColor=_ACCENT, fontSize=8.5, leading=12, spaceAfter=4
+            "TierCaption", parent=base["BodyText"], fontName="Geist-Medium", textColor=_ACCENT, fontSize=8.5,
+            leading=12, spaceAfter=4,
         ),
         "callout_heading": ParagraphStyle(
-            "CalloutHeading", parent=base["Heading2"], textColor=_INK, fontSize=11, spaceAfter=3
+            "CalloutHeading", parent=base["Heading2"], fontName="Geist-SemiBold", textColor=_INK, fontSize=11,
+            spaceAfter=3,
         ),
         "callout_body": ParagraphStyle(
-            "CalloutBody", parent=base["BodyText"], textColor=_INK, fontSize=9.5, leading=13
+            "CalloutBody", parent=base["BodyText"], fontName="Geist-Regular", textColor=_INK, fontSize=9.5,
+            leading=13,
+        ),
+        "attribute_line": ParagraphStyle(
+            "AttributeLine", parent=base["BodyText"], fontName="Geist-Regular", textColor=_INK, fontSize=9.5,
+            leading=13, spaceAfter=3,
+        ),
+        # Overview page (_overview_flowables) -- mirrors HomeOverviewScreen.tsx's
+        # StatRow/PriorityFeaturesCard/TreatmentProtocolPanel typography scale,
+        # condensed for print.
+        "stat_label": ParagraphStyle(
+            "StatLabel", parent=base["Normal"], fontName="Geist-SemiBold", textColor=_INK_MUTED, fontSize=7.5,
+            leading=10,
+        ),
+        "stat_value": ParagraphStyle(
+            "StatValue", parent=base["Normal"], fontName="Geist-Bold", textColor=_INK, fontSize=17, leading=20,
+            spaceBefore=2,
+        ),
+        "stat_value_accent": ParagraphStyle(
+            "StatValueAccent", parent=base["Normal"], fontName="Geist-Bold", textColor=_ACCENT, fontSize=17,
+            leading=20, spaceBefore=2,
+        ),
+        "priority_name": ParagraphStyle(
+            "PriorityName", parent=base["Normal"], fontName="Geist-SemiBold", textColor=_INK, fontSize=9.5,
+            leading=12,
+        ),
+        "priority_finding": ParagraphStyle(
+            "PriorityFinding", parent=base["Normal"], fontName="Geist-Regular", textColor=_INK_MUTED, fontSize=8,
+            leading=11, spaceAfter=2,
+        ),
+        "phase_title": ParagraphStyle(
+            "PhaseTitle", parent=base["Normal"], fontName="Geist-SemiBold", textColor=_INK, fontSize=9.5, leading=12
+        ),
+        "phase_subtitle": ParagraphStyle(
+            "PhaseSubtitle", parent=base["Normal"], fontName="Geist-Regular", textColor=_INK_MUTED, fontSize=7.5,
+            leading=10, spaceAfter=3,
+        ),
+        "phase_bullet": ParagraphStyle(
+            "PhaseBullet", parent=base["BodyText"], fontName="Geist-Regular", textColor=_INK, fontSize=8.5,
+            leading=11.5, spaceAfter=2,
         ),
     }
 
@@ -331,6 +514,29 @@ def _scaled_image(image_bytes: bytes, max_width: float, max_height: float) -> RL
         w, h = im.size
     scale = min(max_width / w, max_height / h, 1.0)
     return RLImage(io.BytesIO(image_bytes), width=w * scale, height=h * scale)
+
+
+def _framed_image(image_bytes: bytes, max_width: float, max_height: float) -> Table:
+    """A scaled photo in a thin frame sized to its own rendered dimensions,
+    not the bounding box it was fit into -- a bare RLImage inside a wider
+    box otherwise floats with the page's paper-colored background showing
+    on whichever side the photo's aspect ratio doesn't fill, which reads as
+    an unstyled gap rather than a deliberate crop. A snug 1pt border turns
+    every photo into a small, consistent "card" instead."""
+    image = _scaled_image(image_bytes, max_width, max_height)
+    table = Table([[image]], colWidths=[image.drawWidth], rowHeights=[image.drawHeight])
+    table.setStyle(
+        TableStyle(
+            [
+                ("BOX", (0, 0), (-1, -1), 1, _RECESSED),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+    return table
 
 
 class _ReportCanvas(Canvas):
@@ -383,7 +589,7 @@ class _ReportCanvas(Canvas):
         else:
             label = str(page_number - _FRONT_MATTER_PAGE_COUNT)
         self.saveState()
-        self.setFont("Helvetica", 8)
+        self.setFont("Geist-Medium", 8)
         self.setFillColor(_INK_MUTED)
         self.drawRightString(width - _MARGIN, 0.55 * inch, label)
         self.restoreState()
@@ -425,7 +631,7 @@ def _draw_header(canvas: Canvas, _doc: Any) -> None:
     width, height = _PAGE_SIZE
     canvas.saveState()
     _draw_wordmark(canvas, _MARGIN, height - 0.63 * inch, size=11)
-    canvas.setFont("Helvetica", 9)
+    canvas.setFont("Geist-Regular", 9)
     canvas.setFillColor(_INK_MUTED)
     canvas.drawRightString(width - _MARGIN, height - 0.6 * inch, "Facial Analysis Report")
     canvas.setStrokeColor(_RECESSED)
@@ -451,6 +657,7 @@ def render_pdf(
     user: User,
     images: dict[str, bytes] | None = None,
     visuals: dict[str, bytes] | None = None,
+    front_photo: bytes | None = None,
 ) -> bytes:
     """`visuals` (Milestone 2, FR-022) is already filtered to only
     status="generated" rows by report_service._load_all_feature_visuals --
@@ -478,9 +685,13 @@ def render_pdf(
     generated_label = f"Generated {report.created_at.strftime('%B %d, %Y')}"
 
     page_numbers: dict[str, int] = {}
-    _build_pdf(report, sections, styles, generated_label, images, visuals, page_numbers, toc_page_numbers=None)
+    _build_pdf(
+        report, sections, styles, generated_label, images, visuals, page_numbers, toc_page_numbers=None,
+        front_photo=front_photo,
+    )
     return _build_pdf(
-        report, sections, styles, generated_label, images, visuals, page_numbers, toc_page_numbers=page_numbers
+        report, sections, styles, generated_label, images, visuals, page_numbers, toc_page_numbers=page_numbers,
+        front_photo=front_photo,
     )
 
 
@@ -493,6 +704,7 @@ def _build_pdf(
     visuals: dict[str, bytes],
     record_into: dict[str, int],
     toc_page_numbers: dict[str, int] | None,
+    front_photo: bytes | None = None,
 ) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -514,28 +726,29 @@ def _build_pdf(
     story.append(PageBreak())
     story.extend(_understanding_flowables(styles))
     story.append(PageBreak())
-    story.extend(_protocol_overview_flowables(styles, sections))
+    story.extend(_protocol_overview_flowables(styles, sections, front_photo))
     story.append(PageBreak())
     story.extend(_facial_assessments_flowables(styles, sections))
     story.append(PageBreak())
+    story.extend(_overview_flowables(styles, sections))
+    story.append(PageBreak())
 
     features = sections.get("features", {})
-    # Eyebrows + Eyes share one physical page -- report_design_spec.md
-    # §9.2's only such case -- so no PageBreak is inserted between exactly
-    # this one consecutive pair; every other feature gets its own page.
-    _SHARED_PAGE_PAIRS = {("eyebrows", "eyes")}
-    for index, feature in enumerate(ANALYSIS_FEATURES):
+    # Explicit client instruction (2026-09-15): every one of the 11
+    # features always starts on its own fresh physical page, no exceptions
+    # -- including Eyebrows/Eyes (previously a shared page) and the
+    # transition into Closing Recommendations. A feature whose narrative
+    # overflows onto a second physical page is accepted as-is rather than
+    # optimized away (see render_pdf's two-pass docstring for why that
+    # doesn't break the Table of Contents).
+    for feature in ANALYSIS_FEATURES:
         story.append(_PageMarker(f"feature:{feature}", record_into))
         story.extend(
             _feature_flowables(
                 styles, feature, features.get(feature, {}), images.get(feature), visuals.get(feature), sections
             )
         )
-        if index < len(ANALYSIS_FEATURES) - 1:
-            next_feature = ANALYSIS_FEATURES[index + 1]
-            if (feature, next_feature) not in _SHARED_PAGE_PAIRS:
-                story.append(PageBreak())
-    story.append(PageBreak())
+        story.append(PageBreak())
 
     story.append(_PageMarker("closing_recommendations", record_into))
     story.extend(_closing_recommendations_flowables(styles, sections))
@@ -590,7 +803,7 @@ def _disclaimer_flowables(styles: dict[str, ParagraphStyle]) -> list[Any]:
             ]
         )
     )
-    return [Paragraph("Disclaimer & Privacy Policy", styles["h1"]), Spacer(1, 8), table]
+    return [*_heading1("Disclaimer & Privacy Policy", styles), Spacer(1, 8), table]
 
 
 def _introduction_flowables(
@@ -632,6 +845,10 @@ def _introduction_flowables(
             Paragraph("Facial Assessments", styles["toc_entry"]),
             Paragraph(_to_roman(_PAGE_FACIAL_ASSESSMENTS), styles["toc_page"]),
         ],
+        [
+            Paragraph("Overview", styles["toc_entry"]),
+            Paragraph(_to_roman(_PAGE_OVERVIEW), styles["toc_page"]),
+        ],
     ]
     for feature in ANALYSIS_FEATURES:
         contents_rows.append(
@@ -672,7 +889,7 @@ def _introduction_flowables(
             ]
         )
     )
-    return [Paragraph("Introduction", styles["h1"]), Spacer(1, 8), table]
+    return [*_heading1("Introduction", styles), Spacer(1, 8), table]
 
 
 # report_template.md v3.0 §6 -- 4 fixed, standing principles, identical
@@ -705,7 +922,7 @@ _UNDERSTANDING_PRINCIPLES = (
 def _understanding_flowables(styles: dict[str, ParagraphStyle]) -> list[Any]:
     """report_template.md v3.0 §6 -- 4 large numbered principles, stacked
     vertically. Replaces the prior round's single free-text paragraph."""
-    flowables: list[Any] = [Paragraph("Understanding the Results", styles["h1"])]
+    flowables: list[Any] = _heading1("Understanding the Results", styles)
     for index, (headline, body) in enumerate(_UNDERSTANDING_PRINCIPLES, start=1):
         flowables.append(Paragraph(f"{index:02d}", styles["principle_number"]))
         flowables.append(Paragraph(headline, styles["h2"]))
@@ -714,18 +931,32 @@ def _understanding_flowables(styles: dict[str, ParagraphStyle]) -> list[Any]:
     return flowables
 
 
-def _protocol_overview_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
+def _protocol_overview_flowables(
+    styles: dict[str, ParagraphStyle], sections: dict[str, Any], front_photo: bytes | None
+) -> list[Any]:
     """report_template.md v3.0 §7 -- "{Subject}'s Protocol" overview page:
     what the protocol is for, an objective/non-comparative framing
     paragraph, and the fixed 11-feature "Projected potential" checklist
     (2 columns, no per-feature detail yet -- that's the feature pages
     below). Replaces the prior round's separate Overview (feature/at-a-
     glance table) and Overall Summary (closing-recommendations prose)
-    pages. The reference's large top Before/After photo pair and its
-    second (11-axis, two-series) radar chart are both explicitly deferred
-    this round -- no whole-face "potential" image exists yet to show, and
-    the chart needs a new per-feature "projected potential" numeric value
-    this round doesn't compute (see the report redesign plan)."""
+    pages. The reference's large top photo pair is half-deferred: there is
+    no whole-face "potential" image to show as an "After" yet (that needs
+    a new AI-generation capability this round doesn't add), but the
+    subject's own uncropped front photo is real, already-uploaded evidence
+    -- showing it here, honestly labeled (never implying a before/after
+    pair that doesn't exist), is better than the mostly-blank page a text-
+    only version of this page left. The second (11-axis, two-series) radar
+    chart stays fully deferred -- it needs a per-feature "projected
+    potential" numeric value this round doesn't compute (see the report
+    redesign plan)."""
+    photo_flowables: list[Any] = []
+    if front_photo:
+        photo_flowables = [
+            _framed_image(front_photo, max_width=2.6 * inch, max_height=3.2 * inch),
+            Paragraph("Your photo, as submitted for this analysis.", styles["caption"]),
+            Spacer(1, 6),
+        ]
     protocol_intro = (
         "Your Protocol is built from your measured facial analysis and gives you a staged, "
         "non-surgical path toward your own aesthetic potential — never a promise of a specific "
@@ -752,7 +983,8 @@ def _protocol_overview_flowables(styles: dict[str, ParagraphStyle], sections: di
     checklist.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 2)]))
 
     return [
-        Paragraph("Your Protocol", styles["h1"]),
+        *_heading1("Your Protocol", styles),
+        *photo_flowables,
         Paragraph(protocol_intro, styles["body"]),
         Paragraph(objective_framing, styles["body"]),
         Spacer(1, 6),
@@ -786,8 +1018,10 @@ def _measurement_flowables(styles: dict[str, ParagraphStyle], measurement: dict[
         TableStyle(
             [
                 ("LINEBELOW", (0, 0), (-1, -1), 0.5, _RECESSED),
+                ("LINEBELOW", (0, 0), (-1, 0), 1.2, _ACCENT),  # heavier accent rule under the header row only
                 ("TOPPADDING", (0, 0), (-1, -1), 3),  # tightened (was 5) -- see _styles()' "h2"/"body" comment
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ]
         )
@@ -843,6 +1077,7 @@ def _facial_assessments_flowables(styles: dict[str, ParagraphStyle], sections: d
         TableStyle(
             [
                 ("LINEBELOW", (0, 0), (-1, -1), 0.5, _RECESSED),
+                ("LINEBELOW", (0, 0), (-1, 0), 1.2, _ACCENT),
                 ("TOPPADDING", (0, 0), (-1, -1), 6),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -855,11 +1090,353 @@ def _facial_assessments_flowables(styles: dict[str, ParagraphStyle], sections: d
         "derived readings, not a clinical assessment."
     )
     return [
-        Paragraph("Facial Assessments", styles["h1"]),
+        *_heading1("Facial Assessments", styles),
         Paragraph(intro, styles["body"]),
         Spacer(1, 6),
         table,
     ]
+
+
+# HarmonyRadarChart.tsx's 6 axes -- same source data
+# (sections["harmony_chart"], facial_assessment_service.compute_harmony_chart),
+# same axis order/labels, kept in lockstep with the frontend copy rather
+# than re-derived.
+_HARMONY_AXIS_ORDER = ("harmony", "symmetry", "smoothness", "jawline", "skin", "volume")
+_HARMONY_AXIS_LABELS = {
+    "harmony": "Harmony",
+    "symmetry": "Symmetry",
+    "smoothness": "Smoothness",
+    "jawline": "Jawline",
+    "skin": "Skin",
+    "volume": "Volume",
+}
+
+
+class _HarmonyRadarChart(Flowable):
+    """Vector-drawn 6-axis radar chart -- the PDF counterpart of the Home
+    dashboard's HarmonyRadarChart.tsx (Recharts). Same technique as
+    _draw_face_scan_icon/_HairLossScale (drawn directly on the canvas)
+    rather than pulling in a charting library for the one chart the PDF
+    has. A missing axis value is plotted as 0, matching the web
+    component's own `harmonyChart[axis] ?? 0` fallback exactly."""
+
+    _AXIS_COUNT = 6
+
+    def __init__(self, values: dict[str, float | None], diameter: float = 2.3 * inch) -> None:
+        super().__init__()
+        self.values = values
+        self.width = diameter
+        self.height = diameter
+
+    def wrap(self, _available_width: float, _available_height: float) -> tuple[float, float]:
+        return (self.width, self.height)
+
+    def _point(self, axis_index: int, fraction: float) -> tuple[float, float]:
+        cx, cy = self.width / 2, self.height / 2
+        radius = min(self.width, self.height) / 2 - 16
+        angle = math.pi / 2 - axis_index * (2 * math.pi / self._AXIS_COUNT)
+        return (cx + radius * fraction * math.cos(angle), cy + radius * fraction * math.sin(angle))
+
+    def draw(self) -> None:
+        canv = self.canv
+        cx, cy = self.width / 2, self.height / 2
+        canv.saveState()
+
+        canv.setStrokeColor(_RECESSED)
+        canv.setLineWidth(0.6)
+        for ring_fraction in (0.25, 0.5, 0.75, 1.0):
+            ring = canv.beginPath()
+            for i in range(self._AXIS_COUNT + 1):
+                x, y = self._point(i % self._AXIS_COUNT, ring_fraction)
+                ring.moveTo(x, y) if i == 0 else ring.lineTo(x, y)
+            canv.drawPath(ring, stroke=1, fill=0)
+        for i in range(self._AXIS_COUNT):
+            x, y = self._point(i, 1.0)
+            canv.line(cx, cy, x, y)
+
+        if any(self.values.get(axis) is not None for axis in _HARMONY_AXIS_ORDER):
+            data_path = canv.beginPath()
+            for i, axis in enumerate(_HARMONY_AXIS_ORDER):
+                fraction = max(0.0, min(1.0, (self.values.get(axis) or 0) / 100))
+                x, y = self._point(i, fraction)
+                data_path.moveTo(x, y) if i == 0 else data_path.lineTo(x, y)
+            data_path.close()
+            canv.setFillColor(_ACCENT, alpha=0.22)
+            canv.setStrokeColor(_ACCENT)
+            canv.setLineWidth(1.4)
+            canv.drawPath(data_path, stroke=1, fill=1)
+
+        canv.setFillColor(_INK_MUTED)
+        canv.setFont("Geist-Regular", 7)
+        for i, axis in enumerate(_HARMONY_AXIS_ORDER):
+            label_x, label_y = self._point(i, 1.18)
+            cos_component = math.cos(math.pi / 2 - i * (2 * math.pi / self._AXIS_COUNT))
+            if abs(cos_component) < 0.35:
+                canv.drawCentredString(label_x, label_y - 3, _HARMONY_AXIS_LABELS[axis])
+            elif cos_component > 0:
+                canv.drawString(label_x, label_y - 3, _HARMONY_AXIS_LABELS[axis])
+            else:
+                canv.drawRightString(label_x, label_y - 3, _HARMONY_AXIS_LABELS[axis])
+
+        canv.restoreState()
+
+
+def _stat_card(label: str, value: str, styles: dict[str, ParagraphStyle], accent: bool = False) -> Table:
+    """One StatRow.tsx card (Overall Score / Evaluated) -- a bordered cell
+    with a small uppercase label over a large number, not a table row, so
+    it reads the same as the dashboard's own stat cards."""
+    value_style = styles["stat_value_accent"] if accent else styles["stat_value"]
+    cell = [Paragraph(label.upper(), styles["stat_label"]), Paragraph(value, value_style)]
+    card = Table([[cell]], colWidths=[1.72 * inch])
+    card.setStyle(
+        TableStyle(
+            [
+                ("BOX", (0, 0), (-1, -1), 0.75, _RECESSED),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+    return card
+
+
+def _stat_row_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
+    """StatRow.tsx's "Overall Score" + "Evaluated ... points" cards --
+    same evaluatedPointsCount() logic (available feature scores +
+    available facial assessments, out of the fixed 11 + 5), just computed
+    in Python from the same underlying `sections` data instead of
+    TypeScript from the same API response."""
+    feature_scores = sections.get("feature_scores", {})
+    facial_assessments = sections.get("facial_assessments", {})
+    overall_score = sections.get("overall_score")
+
+    evaluated = sum(1 for v in feature_scores.values() if v.get("available")) + sum(
+        1 for v in facial_assessments.values() if v.get("available")
+    )
+    total = len(feature_scores) + len(facial_assessments)
+
+    cards: list[Any] = []
+    if overall_score is not None:
+        cards.append(_stat_card("Overall Score", f"{round(overall_score)} / 100", styles))
+    if total > 0:
+        cards.append(_stat_card("Evaluated", f"{evaluated} / {total} points", styles, accent=True))
+    if not cards:
+        return []
+    row = Table([cards], colWidths=[1.85 * inch] * len(cards))
+    row.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 8)]))
+    return [row, Spacer(1, 10)]
+
+
+def _score_tone_color(score: float) -> Any:
+    """Same 3-band tone PriorityFeaturesList.tsx's scoreTone() uses (amber
+    under 50, accent teal at/above 80, plain ink between) -- reused here so
+    a priority row's score number carries the same at-a-glance severity
+    color on paper as it does on screen."""
+    if score < 50:
+        return colors.HexColor("#92400E")  # amber-800, same family as the web's text-amber-800
+    if score < 80:
+        return _INK
+    return _ACCENT
+
+
+_PRIORITY_FEATURE_ROW_CAP = 6
+
+
+def _priority_features_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
+    """PriorityFeaturesList.tsx, condensed for print: every feature flagged
+    "Needs Attention" (the lowest score band), sorted ascending (lowest
+    score = most room to improve, shown first). Hair/Neck never appear
+    (no CV score exists for either, by design -- same omission the web
+    list makes). A thin colored bar under each row is the print
+    counterpart of the web list's Progress bar. Capped at
+    `_PRIORITY_FEATURE_ROW_CAP` rows for the same reason
+    _PROTOCOL_PHASE_ITEM_CAP exists on the Treatment Protocol side (see
+    _truncate's docstring) -- at most 9 of the 11 features can ever be
+    "Needs Attention" (Hair/Neck are excluded by design), so this is a
+    defensive ceiling more than a normally-reached one."""
+    feature_scores = sections.get("feature_scores", {})
+    ranked = [
+        (feature, feature_scores[feature])
+        for feature in ANALYSIS_FEATURES
+        if (data := feature_scores.get(feature))
+        and data.get("available")
+        and data.get("score") is not None
+        and data.get("label") == "Needs Attention"
+    ]
+    ranked.sort(key=lambda entry: entry[1]["score"])
+
+    heading = Paragraph("Priority Features to Improve", styles["h2"])
+    if not ranked:
+        return [heading, Paragraph("No features are flagged as needing attention in this report.", styles["caption"])]
+
+    rows: list[Any] = [heading]
+    bar_width = 3.55 * inch
+    shown, remainder = ranked[:_PRIORITY_FEATURE_ROW_CAP], ranked[_PRIORITY_FEATURE_ROW_CAP:]
+    for feature, data in shown:
+        score = data["score"]
+        tone = _score_tone_color(score)
+        name_row = Table(
+            [[Paragraph(_FEATURE_LABELS[feature], styles["priority_name"]), Paragraph(f"{round(score)}", styles["priority_name"])]],
+            colWidths=[bar_width - 0.4 * inch, 0.4 * inch],
+        )
+        name_row.setStyle(
+            TableStyle(
+                [
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ("TEXTCOLOR", (1, 0), (1, 0), tone),
+                    ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                ]
+            )
+        )
+        rows.append(name_row)
+        driver, finding = data.get("driver"), data.get("finding")
+        if driver and finding:
+            rows.append(Paragraph(f"{driver} — {finding}", styles["priority_finding"]))
+        filled = max(0.02, min(1.0, score / 100))
+        bar = Table([[""] * 2], colWidths=[bar_width * filled, bar_width * (1 - filled)], rowHeights=[3])
+        bar.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (0, 0), tone),
+                    ("BACKGROUND", (1, 0), (1, 0), _RECESSED),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
+        rows.append(bar)
+        rows.append(Spacer(1, 7))
+    if remainder:
+        rows.append(Paragraph(f"+ {len(remainder)} more — see each feature's own page", styles["priority_finding"]))
+    return rows
+
+
+# TreatmentProtocolPanel.tsx's PHASES array, kept word-for-word (number,
+# title, subtitle, hint) -- the per-report bullet items are what actually
+# vary; this structural copy about phase sequencing does not. The
+# TreatmentProtocolPanel-only "rationale" sentence per phase is left out
+# of the PDF's condensed Overview page (still one paragraph of standing
+# copy, not per-report content) to keep this page close to a single
+# physical page.
+_PROTOCOL_PHASES = (
+    ("at_home", "01", "Foundation", "Topicals, hydration, and daily care", "Start here"),
+    ("otc_skincare", "02", "Active Care", "Targeted over-the-counter support", "Next"),
+    ("in_clinic", "03", "Professional Options", "Discuss with a qualified clinician", "If desired"),
+)
+
+
+_PROTOCOL_PHASE_ITEM_CAP = 3
+_PROTOCOL_ITEM_CHAR_CAP = 88
+
+
+def _truncate(text: str, max_chars: int) -> str:
+    """Hard length cap with an ellipsis -- exists solely so the Overview
+    page's single-row 2-column Table (_overview_flowables) can never
+    exceed one physical page's height, no matter how long a given
+    report's AI-generated recommendation sentences happen to be. Unlike
+    every other place in this file, this page's content is a *condensed*
+    summary by design (report_pdf_service's module docstring), so a
+    trimmed sentence here is a deliberate print adaptation, not a lost
+    finding -- the full, untruncated sentence already appears verbatim on
+    that feature's own page and/or Closing Recommendations. A single-row
+    Table's cell content cannot split across pages the way a plain
+    top-level flowable stack can, so an unbounded string here is a
+    reliable way to crash PDF generation with a ReportLab LayoutError,
+    not just a cosmetic overflow -- this cap is a correctness guard, not
+    a style choice."""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "…"
+
+
+def _treatment_protocol_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
+    """TreatmentProtocolPanel.tsx, condensed for print -- same 3 phases,
+    one per existing recommendation tier, each phase's real bullet items
+    reused verbatim from `sections["recommendations"]`
+    (report_assembly_service.classify_recommendations). Unlike the web
+    panel (which shows every classified item and can scroll), each phase
+    is capped at `_PROTOCOL_PHASE_ITEM_CAP` items here -- the classifier
+    routes most closing-recommendation sentences into "at_home" and can
+    produce 15-20+ items for one phase, which would blow this condensed
+    Overview page well past one page. The remainder isn't lost: every
+    feature's own Recommendations already appear on that feature's page,
+    and Closing Recommendations repeats the same synthesis in prose."""
+    recommendations = sections.get("recommendations") or {}
+    heading = Paragraph("Treatment Protocol", styles["h2"])
+    has_any = any(recommendations.get(key) for key, *_ in _PROTOCOL_PHASES)
+    if not has_any:
+        return [heading, Paragraph("No specific protocol recommendations were generated.", styles["caption"])]
+
+    flowables: list[Any] = [heading]
+    for key, number, title, subtitle, hint in _PROTOCOL_PHASES:
+        items = recommendations.get(key) or []
+        if not items:
+            continue
+        badge = Table(
+            [[Paragraph(f"PHASE {number}", ParagraphStyle(
+                "PhaseBadge", fontName="Geist-SemiBold", fontSize=7, textColor=colors.white, leading=9,
+            ))]],
+            colWidths=[0.8 * inch],
+        )
+        badge.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), _ACCENT),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+                ]
+            )
+        )
+        flowables.append(badge)
+        flowables.append(Spacer(1, 3))
+        flowables.append(Paragraph(f"{title}: {subtitle}", styles["phase_title"]))
+        flowables.append(Paragraph(hint, styles["phase_subtitle"]))
+        for item in items[:_PROTOCOL_PHASE_ITEM_CAP]:
+            flowables.append(Paragraph(f"• {_truncate(item, _PROTOCOL_ITEM_CHAR_CAP)}", styles["phase_bullet"]))
+        remaining = len(items) - _PROTOCOL_PHASE_ITEM_CAP
+        if remaining > 0:
+            flowables.append(Paragraph(f"+ {remaining} more — see Closing Recommendations", styles["phase_subtitle"]))
+        flowables.append(Spacer(1, 8))
+    return flowables
+
+
+def _overview_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
+    """A new front-matter page (client instruction, 2026-09-15) that
+    condenses the Home dashboard (HomeOverviewScreen.tsx) onto one PDF
+    page: the stats row (score/points evaluated), Priority Features to
+    Improve, the Harmony chart, and the Treatment Protocol -- the same
+    2/3-left, 1/3-right column split the web page itself uses, not a new
+    layout invented for print."""
+    harmony_chart = sections.get("harmony_chart") or {}
+    left_col: list[Any] = [
+        *_stat_row_flowables(styles, sections),
+        *_priority_features_flowables(styles, sections),
+        Spacer(1, 8),
+        Paragraph("Harmony", styles["h2"]),
+        _HarmonyRadarChart(harmony_chart),
+    ]
+    right_col: list[Any] = _treatment_protocol_flowables(styles, sections)
+
+    table = Table([[left_col, right_col]], colWidths=[4.0 * inch, 2.3 * inch])
+    table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LINEBEFORE", (1, 0), (1, 0), 0.5, _RECESSED),
+                ("LEFTPADDING", (1, 0), (1, 0), 14),
+            ]
+        )
+    )
+    return [*_heading1("Overview", styles), Spacer(1, 4), table]
 
 
 def _before_after_flowables(
@@ -876,11 +1453,11 @@ def _before_after_flowables(
     visually flagged element on its page, never silently blended in)."""
     max_w, max_h = 2.3 * inch, 1.7 * inch
     before_cell: Any = (
-        _scaled_image(image_bytes, max_width=max_w, max_height=max_h)
+        _framed_image(image_bytes, max_width=max_w, max_height=max_h)
         if image_bytes
         else Paragraph("No original photo available for this feature.", styles["caption"])
     )
-    after_cell: Any = _scaled_image(visual_bytes, max_width=max_w, max_height=max_h)
+    after_cell: Any = _framed_image(visual_bytes, max_width=max_w, max_height=max_h)
 
     table = Table(
         [
@@ -894,7 +1471,9 @@ def _before_after_flowables(
             [
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
                 ("BOTTOMPADDING", (0, 1), (-1, 1), 4),
+                ("LINEBELOW", (0, 0), (-1, 0), 1.2, _ACCENT),
             ]
         )
     )
@@ -903,6 +1482,36 @@ def _before_after_flowables(
         f"{_FEATURE_LABELS[feature].lower()} — not a guaranteed outcome, a medical result, or a photograph."
     )
     return [table, Paragraph(disclosure, styles["caption"])]
+
+
+def _accent_card(cell_content: list[Any], bg_color: Any, width: float) -> Table:
+    """Shared visual treatment for every callout box on a feature page (the
+    Summary box and the "At a Glance" attributes card): a thin brand-teal
+    bar down the left edge plus a tinted fill, rather than a flat tinted
+    rectangle alone -- gives each box a deliberate, "designed" edge instead
+    of reading as a plain colored background. The bar is always _ACCENT
+    (one consistent accent language across the report); `bg_color` is what
+    distinguishes one kind of callout from another."""
+    bar_width = 4
+    table = Table([["", cell_content]], colWidths=[bar_width, width - bar_width])
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), _ACCENT),
+                ("BACKGROUND", (1, 0), (1, -1), bg_color),
+                ("LEFTPADDING", (0, 0), (0, -1), 0),
+                ("RIGHTPADDING", (0, 0), (0, -1), 0),
+                ("TOPPADDING", (0, 0), (0, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (0, -1), 0),
+                ("LEFTPADDING", (1, 0), (1, -1), 12),
+                ("RIGHTPADDING", (1, 0), (1, -1), 12),
+                ("TOPPADDING", (1, 0), (1, -1), 7),
+                ("BOTTOMPADDING", (1, 0), (1, -1), 7),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    return table
 
 
 def _summary_callout_flowables(styles: dict[str, ParagraphStyle], feature: str, data: dict[str, Any]) -> list[Any]:
@@ -920,19 +1529,7 @@ def _summary_callout_flowables(styles: dict[str, ParagraphStyle], feature: str, 
         Spacer(1, 4),
         Paragraph("Confidence: Based on visible indicators", styles["caption"]),
     ]
-    table = Table([[cell]], colWidths=[5.0 * inch])
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, -1), _CALLOUT_BG),
-                ("LEFTPADDING", (0, 0), (-1, -1), 12),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-                ("TOPPADDING", (0, 0), (-1, -1), 7),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-            ]
-        )
-    )
-    return [Spacer(1, 4), table]
+    return [Spacer(1, 4), _accent_card(cell, _CALLOUT_BG, 5.0 * inch)]
 
 
 # report_design_spec.md v3.0 §9.2's primary sub-heading per feature page,
@@ -961,49 +1558,121 @@ _PRIMARY_SUBHEADING = {
 _SECOND_SUBHEADING = {"jaw": "Further Enhancement", "skin": "Further Skin Enhancement"}
 
 
+class _HairLossScale(Flowable):
+    """report_design_spec.md v3.0 §13.3 -- "a horizontal strip of seven
+    small illustrated head icons... the icon matching the subject's
+    current stage is boxed/highlighted." Drawn directly on the canvas
+    (same technique as _draw_face_scan_icon) rather than the previous
+    plain-text "Normal 1 [2] 3 4 5 6 7 Extreme" line, which read as
+    arbitrary bracket notation rather than an illustration -- an actual
+    circle-per-stage strip with the current one filled/ringed is what the
+    spec (and a reader) expects "illustrated" to mean here."""
+
+    _STAGE_COUNT = 7
+    _RADIUS = 7.5
+    _WIDTH = 5.9 * inch
+
+    def __init__(self, current_stage: int) -> None:
+        super().__init__()
+        self.current_stage = current_stage
+        self.width = self._WIDTH
+        self.height = 40
+
+    def wrap(self, _available_width: float, _available_height: float) -> tuple[float, float]:
+        return (self.width, self.height)
+
+    def draw(self) -> None:
+        canv = self.canv
+        r = self._RADIUS
+        usable = self.width - 2 * r
+        spacing = usable / (self._STAGE_COUNT - 1)
+        cy = self.height - r - 12  # leaves room for the number below and labels below that
+
+        canv.saveState()
+        for i in range(self._STAGE_COUNT):
+            stage = i + 1
+            cx = r + i * spacing
+            is_current = stage == self.current_stage
+            canv.setFillColor(_HAIR_LOSS_STAGE_FILL if is_current else colors.white)
+            canv.setStrokeColor(_ACCENT if is_current else _RECESSED)
+            canv.setLineWidth(1.6 if is_current else 0.9)
+            canv.circle(cx, cy, r, fill=1, stroke=1)
+            canv.setFillColor(_ACCENT if is_current else _INK_MUTED)
+            canv.setFont("Geist-Bold" if is_current else "Geist-Regular", 7.5)
+            canv.drawCentredString(cx, cy - 2.5, str(stage))
+
+        canv.setFillColor(_INK_MUTED)
+        canv.setFont("Geist-Regular", 7.5)
+        canv.drawString(0, 0, "Normal")
+        canv.drawCentredString(self.width / 2, 0, "Need Attention")
+        canv.drawRightString(self.width, 0, "Extreme")
+        canv.restoreState()
+
+
 def _hair_loss_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
     """report_design_spec.md v3.0 §13.3 / report_template.md §10 -- the
     Hair page's "Hair Loss" sub-section, AI-estimated alongside the rest
     of the narrative (ai_narrative_service.py). Omitted entirely (not a
-    placeholder stage) when the model couldn't assess it from the photos."""
+    placeholder stage) when the model couldn't assess it from the photos --
+    never a guessed/default stage shown just to fill the section."""
     hair_loss = sections.get("hair_loss")
     if not hair_loss:
         return []
     stage, label = hair_loss.get("stage"), hair_loss.get("label", "")
-    strip = "  ".join(
-        f"[{i}]" if i == stage else str(i) for i in range(1, 8)
-    )
     return [
         Paragraph("Hair Loss", styles["h2"]),
         Paragraph(f"Stage {stage} of 7 — {label}", styles["body"]),
-        Paragraph(f"Normal {strip} Extreme", styles["caption"]),
+        _HairLossScale(stage),
+        Spacer(1, 3),
     ]
 
 
 def _attributes_flowables(styles: dict[str, ParagraphStyle], attributes: dict[str, str]) -> list[Any]:
     """AI-classified named attributes for this feature (e.g. hair's
     hairline/texture/density) -- report_design_spec.md's "match the
-    reference's actual content depth" directive. A compact key/value grid,
-    same visual language as _measurement_flowables' table, right above the
-    narrative it's woven into. Omitted entirely when nothing was
-    confidently classified (never a fabricated placeholder row)."""
+    reference's actual content depth" directive.
+
+    Deliberately NOT a second lined Metric/Value-style table directly
+    under the real Measurements table above it -- back to back, identically
+    styled, the two used to read as one merged table with an odd header
+    switch partway down. This is a distinct, tinted "At a Glance" card
+    instead (own heading, own background, no cell borders) so a reader can
+    tell at a glance that Measurements is raw CV data and this is the AI's
+    qualitative read -- two different kinds of finding, not a continuation
+    of the same list. Omitted entirely when nothing was confidently
+    classified (never a fabricated placeholder row).
+
+    Laid out as a two-column grid rather than one stacked line per
+    attribute -- report_design_spec.md v3.0 requires every feature to land
+    on exactly one physical page (§9.1: "ten physical pages carry the
+    eleven features"), and this card is the single biggest reclaimable
+    block of vertical space on a feature page (up to 7 attributes for
+    Hair, 6 for Eyes). Halving its row count via two columns is layout
+    only -- same labels, same values, nothing summarized or dropped."""
     if not attributes:
         return []
-    rows: list[list[Any]] = [[Paragraph("Attribute", styles["table_head"]), Paragraph("Reading", styles["table_head"])]]
-    for key, value in attributes.items():
-        rows.append([Paragraph(_humanize_metric_key(key), styles["table_cell"]), Paragraph(value, styles["table_cell"])])
-    table = Table(rows, colWidths=[2.6 * inch, 3.3 * inch], repeatRows=1)
-    table.setStyle(
+    entries = [
+        Paragraph(f"<b>{_humanize_metric_key(key)}</b> — {value}", styles["attribute_line"])
+        for key, value in attributes.items()
+    ]
+    grid_rows: list[list[Any]] = [entries[i : i + 2] for i in range(0, len(entries), 2)]
+    if len(grid_rows) and len(grid_rows[-1]) == 1:
+        grid_rows[-1].append("")
+    col_width = 2.85 * inch
+    grid = Table(grid_rows, colWidths=[col_width, col_width])
+    grid.setStyle(
         TableStyle(
             [
-                ("LINEBELOW", (0, 0), (-1, -1), 0.5, _RECESSED),
-                ("TOPPADDING", (0, 0), (-1, -1), 3),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ]
         )
     )
-    return [table, Spacer(1, 4)]
+    cell: list[Any] = [Paragraph("At a Glance", styles["callout_heading"]), grid]
+    return [Spacer(1, 4), _accent_card(cell, _ATTRIBUTE_BG, 5.9 * inch), Spacer(1, 4)]
 
 
 def _feature_flowables(
@@ -1014,11 +1683,11 @@ def _feature_flowables(
     visual_bytes: bytes | None = None,
     sections: dict[str, Any] | None = None,
 ) -> list[Any]:
-    flowables: list[Any] = [Paragraph(_FEATURE_LABELS[feature], styles["h1"])]
+    flowables: list[Any] = _heading1(_FEATURE_LABELS[feature], styles)
     if visual_bytes:
         flowables.extend(_before_after_flowables(styles, feature, image_bytes, visual_bytes))
     elif image_bytes:
-        flowables.append(_scaled_image(image_bytes, max_width=2.6 * inch, max_height=1.5 * inch))
+        flowables.append(_framed_image(image_bytes, max_width=2.6 * inch, max_height=1.5 * inch))
         caption = f"Detail from your uploaded photo — {_FEATURE_LABELS[feature].lower()} region."
         flowables.append(Paragraph(caption, styles["caption"]))
 
@@ -1037,16 +1706,24 @@ def _feature_flowables(
     flowables.append(Paragraph("Areas of Note", styles["h2"]))
     flowables.append(Paragraph(data.get("areas_of_note", "") or "None notable.", styles["body"]))
 
+    # The Recommendations block + closing Summary callout are kept together
+    # as one unit -- previously, when this tail didn't quite fit in the
+    # remaining space on a page, ReportLab would leave that leftover space
+    # blank and push just the (small) Summary box alone onto an otherwise-
+    # empty next page. Grouping them means a too-tight fit moves the whole
+    # tail together instead, which reads far better than an orphaned box.
+    tail: list[Any] = []
     ideas = data.get("projected_potential") or []
     if ideas:
-        flowables.append(Paragraph(_SECOND_SUBHEADING.get(feature, "Recommendations"), styles["h2"]))
+        tail.append(Paragraph(_SECOND_SUBHEADING.get(feature, "Recommendations"), styles["h2"]))
         tier = data.get("recommendation_tier")
         if tier and tier in _TIER_LABELS:
-            flowables.append(Paragraph(f"Recommendation tier: {_TIER_LABELS[tier]}", styles["tier_caption"]))
+            tail.append(Paragraph(f"Recommendation tier: {_TIER_LABELS[tier]}", styles["tier_caption"]))
         for idea in ideas:
-            flowables.append(Paragraph(f"• {idea}", styles["body"]))
+            tail.append(Paragraph(f"• {idea}", styles["body"]))
 
-    flowables.extend(_summary_callout_flowables(styles, feature, data))
+    tail.extend(_summary_callout_flowables(styles, feature, data))
+    flowables.append(KeepTogether(tail))
     return flowables
 
 
@@ -1095,7 +1772,7 @@ def _closing_recommendations_flowables(styles: dict[str, ParagraphStyle], sectio
             ]
         )
     )
-    return [Paragraph("Closing Recommendations", styles["h1"]), Spacer(1, 8), table]
+    return [*_heading1("Closing Recommendations", styles), Spacer(1, 8), table]
 
 
 def _appendix_flowables(styles: dict[str, ParagraphStyle], report: Report) -> list[Any]:
@@ -1119,6 +1796,7 @@ def _appendix_flowables(styles: dict[str, ParagraphStyle], report: Report) -> li
         TableStyle(
             [
                 ("LINEBELOW", (0, 0), (-1, -1), 0.5, _RECESSED),
+                ("LINEBELOW", (0, 0), (-1, 0), 1.2, _ACCENT),
                 ("TOPPADDING", (0, 0), (-1, -1), 6),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -1132,7 +1810,7 @@ def _appendix_flowables(styles: dict[str, ParagraphStyle], report: Report) -> li
         "by a human before delivery."
     )
     return [
-        Paragraph("Appendix", styles["h1"]),
+        *_heading1("Appendix", styles),
         Paragraph("Glossary", styles["h2"]),
         table,
         Spacer(1, 14),

@@ -1,5 +1,6 @@
 "use client"
 
+import { ReportPhotoFrame } from "./ReportPhotoFrame"
 import { meridian } from "@/lib/report/meridianTokens"
 import type { FacialAssessment } from "@/lib/reports/reportApi"
 
@@ -20,14 +21,20 @@ export function FacialThirdsOverlay({ photoUrl, overlay }: { photoUrl: string | 
   }
 
   return (
-    <div className="relative overflow-hidden rounded-lg">
-      {/* eslint-disable-next-line @next/next/no-img-element -- authenticated blob URL */}
-      <img src={photoUrl} alt="Your uploaded photo with facial-thirds boundaries marked" className="block w-full" />
-      <ThirdLine y={hairlineY} label="Hairline (approx.)" />
-      <ThirdLine y={browY} label="Brow" />
-      <ThirdLine y={noseBaseY} label="Nose base" />
-      <ThirdLine y={chinY} label="Chin" />
-    </div>
+    <ReportPhotoFrame>
+      <div className="relative">
+        {/* eslint-disable-next-line @next/next/no-img-element -- authenticated blob URL */}
+        <img
+          src={photoUrl}
+          alt="Your uploaded photo with facial-thirds boundaries marked"
+          className="block h-auto w-full object-contain"
+        />
+        <ThirdLine y={hairlineY} label="Hairline (approx.)" />
+        <ThirdLine y={browY} label="Brow" />
+        <ThirdLine y={noseBaseY} label="Nose base" />
+        <ThirdLine y={chinY} label="Chin" />
+      </div>
+    </ReportPhotoFrame>
   )
 }
 

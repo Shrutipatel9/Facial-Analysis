@@ -24,7 +24,7 @@ export function SymmetryPage({ data, photoUrl }: { data: FacialAssessment; photo
           <p className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: meridian.ink.muted }}>
             Regional balance
           </p>
-          <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          <div className="grid max-w-2xl gap-x-5 gap-y-3 sm:grid-cols-2">
             {Object.entries(data.sub_scores).map(([label, driver]) => (
               <RegionalBalanceBar key={label} label={label} score={driver.score} />
             ))}

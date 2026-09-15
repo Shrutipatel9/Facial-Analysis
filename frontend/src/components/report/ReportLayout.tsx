@@ -5,7 +5,6 @@ import { useRef } from "react"
 import { ReportNav } from "./ReportNav"
 import {
   workspaceAsideClassName,
-  workspacePanelScrollClassName,
   workspaceShellClassName,
   workspaceUnifiedPanelClassName,
 } from "@/components/layout/workspaceChrome"
@@ -23,7 +22,10 @@ export function ReportLayout({ children }: { children: React.ReactNode }) {
           <ReportNav scrollContainerRef={scrollContainerRef} />
         </aside>
 
-        <div ref={scrollContainerRef} className={workspacePanelScrollClassName()}>
+        <div
+          ref={scrollContainerRef}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-7 sm:py-7 lg:px-8"
+        >
           {children}
         </div>
       </div>
