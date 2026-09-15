@@ -22,16 +22,14 @@ OWN DB session (never the request-scoped one) since they outlive the
 request that started them.
 """
 
-import asyncio
 import logging
 import uuid
-from collections.abc import Coroutine
 from datetime import UTC, datetime
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.background_tasks import schedule_background_task
 from app.core.cv_executor import run_cv_task
 from app.db.session import async_session_factory
 from app.exceptions import (
@@ -46,28 +44,12 @@ from app.models.facial_analysis_result import FacialAnalysisResult
 from app.models.questionnaire_response import QuestionnaireResponse
 from app.services import payment_service, photo_service, questionnaire_service
 from app.services.ai_narrative_service import generate_narrative
-from app.services.facial_measurement_service import ANALYSIS_FEATURES, extract_measurements
+from app.services.facial_assessment_service import extract_measurements_and_assessments
+from app.services.facial_measurement_service import ANALYSIS_FEATURES
 from app.services.photo_storage import get_photo_storage
 from app.services.photo_validation_service import REQUIRED_ANGLES
 
 logger = logging.getLogger(__name__)
-
-# asyncio only keeps a *weak* reference to a task once create_task()'s
-# return value is discarded -- an unreferenced task can be garbage-collected
-# mid-execution with no error, no log, nothing (see the Python docs' own
-# "Important" note on asyncio.create_task). Every scheduled pipeline task is
-# added here and removed via its own done-callback, so it stays referenced
-# for its whole lifetime regardless of GC pressure.
-_background_tasks: set[asyncio.Task[None]] = set()
-
-
-def schedule_background_task(coro: Coroutine[Any, Any, None]) -> None:
-    """Schedules a fire-and-forget background coroutine with a held
-    reference (see _background_tasks above) -- the one correct way to use
-    asyncio.create_task() for a task nothing else awaits."""
-    task = asyncio.create_task(coro)
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
 
 
 async def _get_latest(db: AsyncSession, user_id: uuid.UUID) -> FacialAnalysisResult | None:
@@ -119,7 +101,24 @@ async def trigger_analysis(db: AsyncSession, user_id: uuid.UUID) -> FacialAnalys
         measurements=placeholder_measurements,
     )
     db.add(record)
-    await db.flush()
+    # Commits (not just flushes) before scheduling the background task --
+    # same "commit, then schedule" convention as every other
+    # schedule_background_task call site (ai_visual_service.get_or_create_
+    # visuals, report_service.get_or_create_report). The background task
+    # opens its OWN DB session (module docstring), so a flush-only record
+    # is invisible to it: asyncio.create_task() below doesn't run
+    # synchronously, and there are real await points between here and this
+    # request's get_db-dependency commit (response serialization,
+    # security-headers/CORS/rate-limit middleware) where the event loop can
+    # hand control to the newly scheduled task first -- it would then query
+    # for a row that, from its own session's perspective, was never
+    # committed, log "analysis <id> not found", and return without ever
+    # flipping status off "processing". The row is stuck forever after
+    # that: trigger_analysis's own existing-analysis guard above only
+    # allows a retry once status is "failed", never "processing" -- so
+    # without this commit, a user who hits this race has no in-app way to
+    # recover at all.
+    await db.commit()
     await db.refresh(record)
 
     analysis_id = record.id
@@ -163,8 +162,14 @@ async def run_analysis_pipeline(analysis_id: uuid.UUID) -> None:
 
         try:
             photos = await _load_photo_bytes(session, record.user_id)
-            measurements = await run_cv_task(extract_measurements, photos)
+            # Milestone 2 (FR-018): the combinator runs MediaPipe detection
+            # exactly once and derives both the per-feature measurements
+            # and the 5 facial assessments from it -- calling
+            # extract_measurements() and extract_facial_assessments()
+            # separately would each independently re-run the landmarker.
+            measurements, assessments = await run_cv_task(extract_measurements_and_assessments, photos)
             record.measurements = {feature: value.to_dict() for feature, value in measurements.items()}
+            record.facial_assessments = {category: value.to_dict() for category, value in assessments.items()}
             await session.commit()
         except Exception:  # noqa: BLE001 -- broad on purpose, see docstring
             logger.exception("Analysis pipeline failed for %s", analysis_id)

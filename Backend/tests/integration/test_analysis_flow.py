@@ -199,6 +199,67 @@ class TestTriggerAnalysis:
         assert body["status"] == "processing"
         assert body["id"]
 
+    async def test_record_is_committed_before_the_background_task_is_scheduled(
+        self, client: AsyncClient, email_sender, db: AsyncSession, monkeypatch
+    ):
+        """Regression test for a real production bug: run_analysis_pipeline
+        opens its OWN DB session (module docstring), independent of the
+        request's session. trigger_analysis used to only flush() the new
+        row before calling schedule_background_task(), not commit() --
+        under READ COMMITTED, a flushed-but-uncommitted row is invisible to
+        any other session/connection. Because asyncio.create_task() doesn't
+        run synchronously, and there are real await points between
+        scheduling and the request's get_db-dependency commit (response
+        serialization, security-headers/CORS/rate-limit middleware), the
+        background task could start and query for the row before it was
+        durably committed -- logging "analysis <id> not found" and leaving
+        the row stuck on "processing" forever (trigger_analysis's own
+        existing-analysis guard only allows a retry once status is
+        "failed", so a user who hit this had no in-app recovery path).
+
+        Can't test this by checking row visibility after the HTTP call
+        returns -- by then get_db's own teardown commit has already run
+        regardless of what trigger_analysis itself did, so a buggy
+        flush-only version would pass that check too. This instead spies
+        on call *order*: db.commit() must happen before
+        schedule_background_task(), which is the actual fix. The spy is
+        installed only right before calling trigger_analysis itself (not
+        earlier) -- _mark_paid below does its own unrelated db.commit() to
+        persist the Payment row, which would otherwise pre-satisfy
+        commit_was_called and let this test pass even without the fix."""
+        from app.services import analysis_service
+
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "an-race@example.com")
+        await _complete_questionnaire(client, headers)
+        await _complete_photos(client, headers)
+        await _mark_paid(db, user_id)
+
+        commit_was_called = False
+        commit_called_before_schedule = False
+        original_commit = db.commit
+
+        async def spy_commit():
+            nonlocal commit_was_called
+            commit_was_called = True
+            await original_commit()
+
+        def spy_schedule(coro):
+            nonlocal commit_called_before_schedule
+            commit_called_before_schedule = commit_was_called
+            coro.close()  # never actually run the real pipeline in this test
+
+        monkeypatch.setattr(db, "commit", spy_commit)
+        monkeypatch.setattr(analysis_service, "schedule_background_task", spy_schedule)
+
+        # Calls trigger_analysis directly against this test's own `db`
+        # session (not via the HTTP client, whose request gets FastAPI's
+        # own separately-injected session that this test can't monkeypatch)
+        # -- the same service function the endpoint itself calls.
+        await analysis_service.trigger_analysis(db, user_id)
+
+        assert commit_was_called, "trigger_analysis must commit the new analysis row"
+        assert commit_called_before_schedule, "commit() must happen before schedule_background_task()"
+
     async def test_second_trigger_is_conflict(self, client: AsyncClient, email_sender, db: AsyncSession):
         headers, user_id = await _auth_headers_and_user_id(client, email_sender, "an-dup@example.com")
         await _complete_questionnaire(client, headers)
@@ -299,7 +360,7 @@ class TestAnalysisPipeline:
         def _boom(photos):
             raise RuntimeError("simulated CV failure")
 
-        monkeypatch.setattr("app.services.analysis_service.extract_measurements", _boom)
+        monkeypatch.setattr("app.services.analysis_service.extract_measurements_and_assessments", _boom)
 
         headers, user_id = await _auth_headers_and_user_id(client, email_sender, "an-cv-fail@example.com")
         await _complete_questionnaire(client, headers)
@@ -321,7 +382,7 @@ class TestAnalysisPipeline:
         def _boom(photos):
             raise RuntimeError("simulated CV failure")
 
-        monkeypatch.setattr("app.services.analysis_service.extract_measurements", _boom)
+        monkeypatch.setattr("app.services.analysis_service.extract_measurements_and_assessments", _boom)
 
         headers, user_id = await _auth_headers_and_user_id(client, email_sender, "an-retry@example.com")
         await _complete_questionnaire(client, headers)
