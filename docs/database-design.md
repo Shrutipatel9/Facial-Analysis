@@ -82,7 +82,7 @@ Implemented in `photo-upload-validation` (`Backend/app/models/photo.py`). One ro
 
 **`PhotoBlob`** (`Backend/app/models/photo_blob.py`, used only when `PHOTO_STORAGE_PROVIDER=database`): `id` (the opaque `storage_reference` string, not a FK — `PhotoStorage`'s contract treats it as opaque to callers), `content` (`LargeBinary`), `content_type`, `created_at`, `updated_at`. Deliberately decoupled from the `Photo` model itself so the storage backend stays swappable without touching `Photo`'s own schema.
 
-### 2.6 Facial Analysis Result (`DATA-006`)
+### 2.6 Facial Analysis Result (`DATA-006`) — **`facial_assessments` field Implemented (Phase 10)**
 Implemented in `facial-analysis-engine` (`Backend/app/models/facial_analysis_result.py`). No DB-level uniqueness on `user_id` -- "one analysis per user, no re-run" (mirrors the questionnaire's/photos' one-and-done posture) is enforced in `Backend/app/services/analysis_service.py` (`AnalysisAlreadyExistsError`), not a DB constraint; a `"failed"` row may be retried (a new row, not an update-in-place).
 
 | Field | Notes |
@@ -93,6 +93,7 @@ Implemented in `facial-analysis-engine` (`Backend/app/models/facial_analysis_res
 | status | `"processing"` \| `"completed"` \| `"failed"` |
 | measurements | Per-feature landmark/measurement output from MediaPipe/OpenCV (`FR-007`), `JSONB`, always keyed by all 11 features from `FR-009`/`BR-008`. MediaPipe's Face Landmarker only really covers 7 with real geometry (Eyebrows, Eyes, Nose, Cheeks, Jaw, Lips, Chin); Ears/Skin get simpler heuristics; **Hair and Neck carry no CV geometry at all** (`null`, not omitted) and are covered entirely by the AI narrative call's own visual read of the photos -- a real limitation, documented in `Backend/app/services/facial_measurement_service.py`, not silently glossed over |
 | narrative_result | Raw AI output (`FR-008`), `JSONB`, nullable until `status="completed"` -- one entry per feature (narrative + summary-callout draft + recommendation ideas) plus a closing-recommendations draft. `report-generation` (Phase 5) wraps this with intro/preamble/limitations/before-after framing into the client-facing Report; it does not re-call the AI |
+| facial_assessments | **(Phase 10, `FR-018`)** `JSONB`, nullable until computed -- the 5 Facial Assessments (dimorphism/prototypicality/proportions/symmetry/face_shape), each an `AssessmentResult` (score/label/slider_position/drivers/sub_scores/overlay/note), computed by `facial_assessment_service.py` from the same landmark mesh as `measurements`, not a separate CV pass |
 | error_message | Nullable, set on `"failed"` -- human-readable, for support/debugging and the frontend's failure state |
 | created_at | |
 | completed_at | Nullable until done |
@@ -101,14 +102,14 @@ Implemented in `facial-analysis-engine` (`Backend/app/models/facial_analysis_res
 
 **Pay-before-analysis (Phase 6, v1.11 revision):** no `FacialAnalysisResult` row is created at all until the user has a succeeded `Payment` (§2.8) -- `analysis_service.trigger_analysis` checks this before writing anything. The trigger itself stays a user-facing "Start Analysis" click (`POST /analysis`), same as before payment gating existed -- only now reachable once payment has already succeeded. `payment_service.handle_webhook_event` deliberately does **not** call `trigger_analysis` itself; it only flips `Payment.status` -- auto-triggering was tried and reverted, since the pipeline can finish in a couple of seconds and made the "analyzing" step invisible to the user. `status`/`measurements`/`narrative_result` are then all populated together in one pass (`analysis_service.run_analysis_pipeline`) -- CV/MediaPipe extraction immediately followed by the DeepSeek narrative call, since both only ever run post-payment now. A narrative-generation failure (the DeepSeek call itself failing, after CV succeeded) still leaves `narrative_result` `null` while `status` stays `"completed"` -- the user already paid and has valid measurements, so a manual pipeline re-invoke is the practical retry path, not a full refund/failure.
 
-### 2.7 Report (`DATA-007`)
+### 2.7 Report (`DATA-007`) — **Implemented (Phase 10 additions, v1.22-v1.25)**
 | Field | Notes |
 |---|---|
 | id | |
 | user_id | |
 | questionnaire_response_id | |
 | analysis_result_id | 1:1 with the source `FacialAnalysisResult` -- see "Multiple reports per user" resolution below |
-| sections | **Resolved (v1.9)**: single `JSONB` blob (not a child table), assembled by `Backend/app/services/report_assembly_service.py`'s pure `assemble_sections()` from the analysis result's `measurements`/`narrative_result` -- `{intro, understanding_your_results, limitations, features: {<feature>: {narrative, summary_callout, projected_potential, measurement}}, recommendations: {at_home, otc_skincare, in_clinic}, closing_recommendations}`. `intro`/`understanding_your_results`/`limitations` are static branded template copy, not AI-generated -- see `ASM-007` |
+| sections | **Resolved (v1.9), extended (Phase 10, `FR-018`)**: single `JSONB` blob (not a child table), assembled by `Backend/app/services/report_assembly_service.py`'s pure `assemble_sections()` from the analysis result's `measurements`/`narrative_result`/`facial_assessments` -- `{intro, understanding_your_results, limitations, features: {<feature>: {narrative, summary_callout, strengths, areas_of_note, projected_potential, measurement, recommendation_tier}}, facial_assessments: {<5 categories>}, feature_scores: {<11 features>}, overall_score, harmony_chart: {<6 axes>}, recommendations: {at_home, otc_skincare, in_clinic}, closing_recommendations}`. `intro`/`understanding_your_results`/`limitations` are static branded template copy, not AI-generated -- see `ASM-007`. `facial_assessments`/`feature_scores`/`overall_score`/`harmony_chart` are Phase 10 additions (`FR-018`), computed by `facial_assessment_service.py`; `recommendation_tier` (per-feature) is a Tier-1 PDF-redesign addition reusing the same `ASM-007` tiering heuristic |
 | pdf_reference | Generated PDF artifact reference (`FR-013`) -- null until the first `GET /reports/{id}/pdf` call lazily renders and caches it in `ReportPdfBlob` (mirrors `PhotoBlob`'s decoupled-storage shape) |
 | publish_state | Phase 1: published-on-generation (`BR-002`); field should still exist (not a hardcoded skip) so Phase 2's Draft/Pending Review/Approved/Published states can be added without a schema rework, consistent with the `role` field's forward-compatibility rationale (`AUTH-009`) |
 | created_at | |
@@ -132,9 +133,19 @@ Implemented in `facial-analysis-engine` (`Backend/app/models/facial_analysis_res
 
 **Enforcement point (`BR-001`, v1.11):** `analysis_service.trigger_analysis` raises `PaymentRequiredError` (402) unless a `status="succeeded"` `Payment` row exists for the user — this is the actual gate, checked *before* any `FacialAnalysisResult` row is created, not at report-read time. `report_service` no longer has any payment-awareness at all: a `Report` can only ever be created from an already-`"completed"` analysis, which by construction never exists without a preceding succeeded payment, so `GET /reports/{id}` and `GET /reports/{id}/pdf` are unconditionally full once a report exists.
 
-## 3. Deferred to Phase 2 (do not model yet)
+## 3. Deferred / Not Modeled Yet
 
-Per `client_requirements.md` Section 9: Admin/reviewer accounts, report review history, AI-chat Conversation records, generated Visual Assets (hairstyle/outfit/aging images). Do not add tables for these in Phase 1 — the `role` field (§2.1) and `publish_state` field (§2.7) are the only forward-compatibility accommodations the client asked for.
+**Still deferred, do not model** (no client scope change): Admin/reviewer accounts, report review history — the `role` field (§2.1) and `publish_state` field (§2.7) remain the only forward-compatibility accommodations for these.
+
+**Milestone 2 scope, not yet modeled** — requirements settled (`docs/milestone2_requirements.md`), no implementation started, so no schema exists yet:
+- **AI-chat Conversation/Message records** (`FR-019`) — a `Conversation` entity (per-user, likely one active conversation) and a `Message` entity (role, content, timestamps), scoped to Phase 12.
+- **Generated Visual Assets, AI Visuals half** (`FR-020`) — hairstyle/outfit/aging preview generation, scoped to Phase 11.
+
+**Implemented (Phase 10)** — no longer deferred:
+- **Per-feature before/after visuals** (`FR-022`) — see the `ReportFeatureVisual`/`ReportFeatureImage` models (`Backend/app/models/`), not the generic "Visual Asset" entity originally sketched here — a per-report-feature table keyed by `(report_id, feature)` proved simpler than a shared cross-module entity.
+- **Facial Assessments indices** (`FR-018`) — see §2.6's `facial_assessments` JSONB column and §2.7's `sections.facial_assessments`/`feature_scores`/`overall_score`/`harmony_chart` above.
+
+Exact column-level schema for the still-deferred `FR-019`/`FR-020` items gets specified when each module's own `D:\zzz\<module>\plans.md` is written.
 
 ## 4. Migrations
 

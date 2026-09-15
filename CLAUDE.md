@@ -4,6 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
+**Milestone 1 (client delivery Phase 1) is functionally complete** — auth, onboarding questionnaire, photo upload/validation, facial analysis engine, report generation, payment, and user dashboard are all implemented (see `docs/phase-wise-requirements.md` Phases 0–7, all marked Implemented).
+
+**Milestone 2's first two phases are implementation-complete as of 2026-09-14 (not yet committed to git).** The client supplied two reference materials on 2026-09-11 (a competitor-product walkthrough video and its PDF report export) that scope out AI Visual Features (hairstyle/outfit/aging previews), an AI Beauty Assistant chat, and a richer interactive report — see `docs/milestone2_requirements.md` (requirements, `FR-018`/`FR-020`/`FR-022`), `docs/milestone2_phase_plan.md` (Implementation Phases 10–13), and **`docs/milestone2_home_and_report_spec.md`** (Home Overview + Report structure checklist).
+
+- **Phase 10 ("report-enrichment")** — Facial Assessments + per-feature scores/harmony + per-feature AI before/after (`FR-018`/`FR-022`). TOC `/report` live. **Open presentation gap:** ship **Home Overview** as post-completion landing (video first screen) — do not keep Welcome-dashboard cards; see `milestone2_home_and_report_spec.md`.
+- **Phase 11 ("AI Visual Features")** — hairstyle / outfit / aging (`FR-020`) live; generation may need retry after Gemini rate limits.
+
+Phases 12–13 (Chat, Settings/Billing) remain unstarted until each has its own `plans.md`. PayPal stays visible-disabled only (`BR-012`) — no working PayPal without client confirmation.
+
 This repo is a **from-scratch build**, two separate applications:
 
 - **`Backend/`** — Python + FastAPI, `uv`-managed (`.python-version` pins ≥3.12). Auth module implemented (JWT/OTP, SQLAlchemy models, Alembic migrations, httpOnly refresh cookie). Real app entrypoint: `Backend/app/main.py`. `Backend/main.py` (repo-root stub) is an unrelated `uv`-generated artifact — ignore it.
@@ -18,7 +27,7 @@ They communicate over HTTP/CORS — the Frontend calls the Backend's REST API di
 - Do not invent requirements not stated there. Anything not explicitly client-stated is labeled `[Recommendation]`, `[Assumption]`, or `[Decided by delivery team]` in that doc — preserve those labels if you carry requirements into code comments, PRs, or new docs.
 - Derived documents under `docs/` (`architecture.md`, `authentication.md`, `api-specification.md`, `database-design.md`, `security.md`, `testing-strategy.md`, `phase-wise-requirements.md`, etc.) must stay consistent with `client_requirements.md`, not the other way around. Requirement IDs (`FR-*`, `AUTH-*`, `NFR-*`, `BR-*`, `WF-*`, `DATA-*`, `CON-*`) are the traceability mechanism between that doc and derived ones — reference them in code comments/PRs for non-obvious decisions.
 - The client intends their own team to keep extending this codebase using AI-assisted tools post-handoff — this is the stated reason to favor clean, modular, conventional code over clever/opaque implementations (`BC-005`, `NFR-011`).
-- This is an explicitly **phased** delivery. Do not build Phase 2 features (admin panel, report review workflow, email notifications, PayPal, Meta Pixel/GTM, AI visual features (hairstyle/outfit/aging), AI Beauty Assistant chat, formal data-retention policy) unless the client's scope changes — see `client_requirements.md` §2.2 and §12.
+- This is an explicitly **phased** delivery. **As of v1.22, the client's scope has changed for part of Phase 2** — see "Project status" above and `docs/milestone2_requirements.md`/`docs/milestone2_phase_plan.md`. AI Visual Features and the AI Beauty Assistant chat are now Milestone 2 scope (not yet implemented); admin panel, report review workflow, email notifications, and Meta Pixel/GTM remain deferred with no scope change. PayPal's status is ambiguous (see `client_requirements.md` §2.2) — do not implement a working PayPal integration without explicit client confirmation. Do not build any still-deferred item unless the client's scope changes again — see `client_requirements.md` §2.2 and §12.
 - Per-module implementation plans live under `D:\zzz\<module>\plans.md`, finalized at the point each module's implementation actually starts (not proactively ahead of time). Per-module `claude.md` files are created only when that module's implementation begins.
 
 ## Quality bar

@@ -29,8 +29,9 @@
 | 10 | Processing / analysis in progress | `FR-007`, `FR-008` |
 | 11 | Results page — teaser (pre-payment) | `FR-015` |
 | 12 | Payment (Stripe) | `FR-015`, `FR-016` |
-| 13 | Full report view (post-payment) | `FR-009`–`FR-013` |
-| 14 | Dashboard (report history/status, download, payment history, profile) | `FR-017` |
+| 13 | Full report view (post-payment) — Milestone 2 TOC report | `FR-009`–`FR-013`, `FR-018`, `FR-022` |
+| 14 | Home Overview (post-analysis landing; replaces Milestone 1 Welcome dashboard) | `FR-017` revised by Milestone 2 video §2.1; see `milestone2_home_and_report_spec.md` |
+| 14b | AI Visuals / Chat / Settings | `FR-020` / `FR-019` / `FR-021` |
 | 15 | Session-expired / re-login prompt | `FE-006` |
 | 16 | Forgot-password: request email, verify code, set new password (three separate screens) | `AUTH-015` |
 
@@ -71,12 +72,21 @@ No dedicated **results** view this phase — on completion the guard's own effec
 1. **Loading** — a brief spinner while `POST /reports` (idempotent get-or-create, synchronous, no AI call) resolves on first visit, or the existing report is fetched on a later visit.
 2. **Loaded** — a condensed summary, restyled per `docs/report_design_spec.md`'s Meridian visual language (warm-paper cards, one feature icon each, a single terracotta accent rule) scoped to this page's own content area, not a site-wide theme change: a short intro, one compact row per feature (icon, name, "Measured"/"AI-assessed" badge, summary callout, narrative — no bullet list), and a disclaimer footer. No recommendations section and no closing-recommendations paragraph render on this page — full detail (including tiered recommendations) lives in the PDF download, which remains the complete `FR-013` artifact. "Download PDF" triggers a browser save of the lazily-rendered, cached PDF.
 
-**Not implemented (out of `report-generation`'s scope):** `docs/report_design_spec.md`/`docs/report_template.md`'s full Phase 2 system — numeric scoring, confidence indicators, the Harmony Chart, the seven-pose evidence gallery, Before/After AI visualization, and in-report payment-locked states. Those require capabilities (a scoring engine, 7-pose capture, AI image generation, a `Payment` model) that don't exist yet and are explicitly Phase 2 scope per `client_requirements.md` §2.2/§12 — this page borrows only the Meridian visual language and content-discipline principles (evidence-first, concise, non-clinical tone), applied to Phase 1's actual 11-feature content.
+**Not implemented by Milestone 1's `report-generation` module** (status as of 2026-09-11 — see `docs/report_design_spec.md`'s Reconciliation Note for the full correction): `docs/report_design_spec.md`/`docs/report_template.md`'s enriched report system — numeric per-feature confidence indicators, the Harmony Chart, the multi-angle evidence gallery, Before/After AI visualization, and in-report payment-locked states. The Harmony Chart and Before/After visualization are now **confirmed real Milestone 2 scope** (`FR-018`/`FR-022`, `docs/milestone2_requirements.md`), not speculative Phase 2 material — still not implemented, but requirements-settled and roadmapped as `docs/milestone2_phase_plan.md` Phase 10. The evidence gallery stays 3-angle (`ASM-005`), not the 7-pose set that design spec originally assumed. Confidence-indicator display and in-report payment-locked-state copy remain genuinely undecided (`milestone2_requirements.md`'s carried-forward open design questions). This page (Milestone 1) borrows only the Meridian visual language and content-discipline principles (evidence-first, concise, non-clinical tone), applied to Phase 1's actual 11-feature content — the enriched version is Phase 10's job, not this module's.
 
 **Resolved (v1.11, `payment`):** the report view itself was never restricted — per the user's direct instruction, payment gates the *start of analysis*, not report reads, so by the time `/report` is reachable at all, it was always already paid, and this page's Phase 5 always-full behavior turned out to be exactly right (no teaser/full conditional needed here after all). Instead, a new `/payment` screen sits between photo upload and analysis in the onboarding chain — a Meridian-styled paywall card (price via `GET /payments/status`, never hardcoded; "Unlock & Start Analysis" behind the existing `ConfirmDialog` per `BR-010`) shown before any analysis or report content exists. See `docs/api-specification.md` §6/§8, `D:\zzz\payment\plans.md`.
 
-### 3.7 Dashboard — **Implemented (Phase 7), revised v1.13**
-Report history/status, download, payment history, profile management (`FR-017`). No further structural requirement is client-stated. Implemented as a single sectioned `/dashboard` page (`frontend/src/app/(protected)/dashboard/page.tsx`): a condensed welcome header (using the account's `full_name`, added v1.13), then a report-status/download card, a payment-history card, and a profile card, each loading independently. Profile management shows account info plus an inline current/new/confirm-password change form (`POST /auth/change-password`, no sign-out — v1.13) — see `docs/client_requirements.md`'s `ASM-009` revision. A persistent "Dashboard" nav button sits in the app header (`(protected)/layout.tsx`, next to the account menu) so it's reachable from any protected page, not just via the logo or an automatic redirect.
+### 3.7 Post-approval Home & workspace nav — **Revised (Milestone 2 / 2026-09-14)**
+
+Milestone 1 shipped `/dashboard` as Welcome + report/payment/profile cards (`FR-017`). Milestone 2 reference video replaces that with:
+
+1. **Home Overview** — first screen after analysis (Overall Score, Evaluated, Analysis Time, Protocol CTA, Before/Potential, Priority Features, Treatment Protocol, Harmony Profile). Spec: [`milestone2_home_and_report_spec.md`](./milestone2_home_and_report_spec.md) §1. Do **not** label this “Dashboard” in the UI; do **not** keep Welcome + AI Visuals/Chat summary cards (those are header nav destinations).
+2. **Interactive Report** — `/report` left TOC (Introduction, Facial Assessments, Features Analysis ×11, Protocol). Spec: same doc §2.
+3. Persistent header: Logo · Report · AI Visuals · Chat Assistant · PDF · EN · profile (`milestone2_requirements.md` §2).
+
+Account/password/billing move to `/settings` (`FR-021`), not the home overview. PDF download remains available from Home Overview and Report (`FR-013`).
+
+**Interim code note:** landing may still redirect completed users to `/report` until Home Overview is implemented — treat that as incomplete vs this section.
 
 ### 3.8 Session Expiry
 When a refresh attempt fails, the frontend must clear auth state and redirect to login (`FE-006`) — this should be a single, consistent redirect handled at the API-client level (per the layering in `docs/architecture.md` §3), not duplicated per-screen.

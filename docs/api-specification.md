@@ -90,11 +90,14 @@ A `"failed"` analysis may be retried via `POST /analysis` again (a new row) — 
 | Method & Path | Purpose | Auth required | Requirement ID |
 |---|---|---|---|
 | `POST /reports` | Idempotent get-or-create: assembles a report from the user's completed (and, by construction, already-paid) analysis result (`BR-002`); 409 `ANALYSIS_NOT_COMPLETED` if analysis isn't done. Returns the same report on a repeat call rather than erroring, unlike `POST /analysis` — cheap/safe to retry since assembly is AI-free | Yes | `FR-009`–`FR-014` |
-| `GET /reports/{id}` | Retrieve report — `teaser` (intro + one-line-per-feature) and `full` (everything else); `full` is always populated, no payment-status field | Yes | `FR-015` |
+| `GET /reports/{id}` | Retrieve report — `teaser` (intro + one-line-per-feature) and `full` (everything else, now also including `facial_assessments`/`feature_scores`/`overall_score`/`harmony_chart`, `FR-018`); `full` is always populated, no payment-status field | Yes | `FR-015`, `FR-018` |
 | `GET /reports/{id}/pdf` | Lazily renders and caches the PDF on first call, then streams the cached bytes | Yes | `FR-013` |
 | `GET /reports` | List a user's reports (today: 0 or 1, see `database-design.md` §5) for the dashboard | Yes | `FR-017` |
+| `GET /reports/{id}/features/{feature}/image` | The cropped source photo for one feature, only valid when that feature's `has_image` is true | Yes | `FR-009` |
+| `GET /reports/{id}/features/{feature}/visual` | **(Phase 10)** The AI-generated "after" image for one feature, only valid once that feature's status is `"generated"` | Yes | `FR-022` |
+| `GET /reports/{id}/visuals/status` | **(Phase 10)** Lightweight polling endpoint — `{feature: status}` for all 11 features, since per-feature visual generation is a background task the frontend polls to pick up completion | Yes | `FR-022` |
 
-**Resolved (v1.9):** report generation is synchronous, not async/polling like `POST /analysis` — assembly is a pure, AI-free data transform of the analysis result's current `measurements`/`narrative_result` (`docs/database-design.md` §2.7), so no `GET /reports/status` endpoint exists or is needed.
+**Resolved (v1.9):** report generation is synchronous, not async/polling like `POST /analysis` — assembly is a pure, AI-free data transform of the analysis result's current `measurements`/`narrative_result` (`docs/database-design.md` §2.7), so no `GET /reports/status` endpoint exists or is needed. (The `visuals/status` polling endpoint above is a narrower, per-feature-visual-generation exception to this, not a general report-status poll.)
 
 **No payment-awareness here (v1.11 revision):** payment gates the *start* of analysis itself (§6, `BR-001`), not report reads — a `Report` can only ever be created from an already-`"completed"` analysis, which by construction never exists without a preceding succeeded payment. `get_or_create_report`/`get_report` still re-run `assemble_sections()` on every read (cheap, no I/O) — kept not for a pre/post-payment transition (that no longer exists) but for the one remaining case a narrative can still be null post-payment: the DeepSeek call itself failing after CV succeeded. When a manual pipeline retry later succeeds, the next report read picks up the real content automatically, and `pdf_reference` is cleared so a stale cached PDF isn't served. The bypass-attempt test that used to live here (`TestBR001BypassAttempt`) now lives against `POST /analysis` instead (§6) — see `Backend/tests/integration/test_payment_flow.py`.
 
@@ -113,9 +116,18 @@ A `"failed"` analysis may be retried via `POST /analysis` again (a new row) — 
 
 Dashboard is a composition of `GET /users/me`, `GET /reports`, and `GET /payments` (§3, §7, §8) rather than a dedicated endpoint — no separate dashboard-specific data is implied by `FR-017` beyond what those three already expose. `frontend/src/app/(protected)/dashboard/page.tsx` renders each as its own independently-loading section (report status/download, payment history, profile) so one slow/failed section never blocks the others.
 
-## 10. Explicitly Not Built (Phase 2)
+## 10. Not Built Yet
 
-No endpoints for: admin report review/approval, email notification triggers, PayPal, AI Visual Features, AI Beauty Assistant chat. See `docs/brd.md` §3.2.
+**Still explicitly out of scope (no client scope change):** admin report review/approval endpoints, email notification triggers, Meta Pixel/GTM. A working PayPal endpoint is not built either, pending `BR-012`'s "visible but disabled" posture — see `docs/client_requirements.md` §2.2. See `docs/brd.md` §3.2.
+
+**Milestone 2 scope, not yet built** (requirements settled, no implementation started — see `docs/milestone2_requirements.md`/`docs/milestone2_phase_plan.md`):
+- AI Visual Features (`FR-020`) — a new endpoint family, e.g. `POST /ai-visuals/{kind}/generate`, `GET /ai-visuals/{kind}` (Phase 11).
+- AI Beauty Assistant chat (`FR-019`) — a new endpoint family, e.g. `POST /chat/messages`, `GET /chat/history` (Phase 12).
+- A dedicated `/settings` area composition (`FR-021`) — reuses existing `GET /users/me`/`GET /payments`/`change-password` endpoints (Phase 13), plus a possible real PayPal endpoint if `BR-012` is ever revisited.
+
+`FR-022` (per-feature before/after images) and `FR-018` (enriched Facial Assessments data) are **implemented** (Phase 10) — see §7 above.
+
+No concrete request/response contracts exist yet for the still-pending items above — they get specified when each module's own `D:\zzz\<module>\plans.md` is written, at the point that module's implementation starts.
 
 ## 11. Open Items
 
