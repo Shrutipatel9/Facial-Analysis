@@ -1,81 +1,22 @@
 "use client"
 
-import { motion } from "motion/react"
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
 
-import { FacialScanVisual } from "@/components/auth/FacialScanVisual"
-import { PaymentHistoryCard } from "@/components/dashboard/PaymentHistoryCard"
-import { ProfileCard } from "@/components/dashboard/ProfileCard"
-import { ReportSummaryCard } from "@/components/dashboard/ReportSummaryCard"
-import { useAuthStore } from "@/store/authStore"
-
-/** Prefers the account's full_name (captured at signup); falls back to an
- * email-derived guess only for accounts created before that field existed. */
-function displayName(user: { full_name: string | null; email: string } | null | undefined): string {
-  const firstName = user?.full_name?.trim().split(/\s+/)[0]
-  if (firstName) return firstName
-
-  const email = user?.email
-  if (!email) return "there"
-  const local = email.split("@")[0] ?? email
-  const cleaned = local.replace(/[._-]+/g, " ").trim()
-  if (!cleaned) return "there"
-  return cleaned.replace(/\b\w/g, (c) => c.toUpperCase())
-}
+import { BrandLoader } from "@/components/branding/BrandLoader"
 
 /**
- * Post-onboarding workspace (FR-017) -- incomplete users are routed to
- * /questionnaire (useQuestionnaireGuard) then /photos
- * (usePhotoUploadGuard) then /payment (usePaymentGuard) then /analysis
- * (useAnalysisGuard), so this page is only ever reached once all four are
- * complete. Composes three independently-loading sections (report,
- * payment history, profile) rather than one combined fetch -- each hits
- * its own already-existing endpoint (GET /reports, GET /payments, GET
- * /users/me), so one slow/failed section never blocks the others.
+ * Legacy route. Post-analysis home is `/home` (Home Overview, see
+ * docs/milestone2_home_and_report_spec.md §0.1) -- never re-render the old
+ * Milestone 1 Welcome dashboard here. Keep this path as a hard redirect so
+ * bookmarks/old links still work.
  */
-export default function DashboardPage() {
-  const user = useAuthStore((state) => state.user)
+export default function DashboardRedirectPage() {
+  const router = useRouter()
 
-  return (
-    <div className="w-full pb-4">
-      <motion.div
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: "easeOut" }}
-        className="mb-7 flex items-center justify-between gap-6 sm:mb-8"
-      >
-        <div className="min-w-0 flex-1 space-y-2">
-          <h1 className="font-heading text-2xl font-semibold tracking-tight text-balance sm:text-3xl">
-            Welcome back, {displayName(user)}
-          </h1>
-          <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-            Your reports, payments, and account, all in one place.
-          </p>
-        </div>
+  useEffect(() => {
+    router.replace("/home")
+  }, [router])
 
-        <motion.div
-          initial={{ opacity: 0, scale: 0.94 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
-          className="relative hidden shrink-0 sm:block"
-          aria-hidden
-        >
-          <div className="absolute inset-[18%] rounded-full bg-primary/[0.08] blur-2xl" />
-          <FacialScanVisual className="relative h-[7.5rem] w-auto sm:h-[9rem]" tone="onLight" />
-        </motion.div>
-      </motion.div>
-
-      <motion.div
-        initial={{ opacity: 0, y: 14 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, ease: "easeOut", delay: 0.08 }}
-        className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr] lg:gap-6"
-      >
-        <div className="flex flex-col gap-5 lg:gap-6">
-          <ReportSummaryCard />
-          <PaymentHistoryCard />
-        </div>
-        <ProfileCard />
-      </motion.div>
-    </div>
-  )
+  return <BrandLoader />
 }

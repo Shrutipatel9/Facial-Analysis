@@ -9,8 +9,8 @@ import { useAuthStore } from "@/store/authStore"
 
 /**
  * Marketing landing for signed-out visitors. Authenticated users go to
- * /dashboard; incomplete onboarding is redirected to /questionnaire by the
- * protected questionnaire guard.
+ * /home (Home Overview); incomplete onboarding is redirected by the
+ * protected guards.
  */
 export default function RootPage() {
   const status = useAuthStore((state) => state.status)
@@ -18,7 +18,7 @@ export default function RootPage() {
 
   useEffect(() => {
     if (status === "authenticated") {
-      router.replace("/dashboard")
+      router.replace("/home")
     }
   }, [status, router])
 

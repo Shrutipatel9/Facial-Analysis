@@ -9,32 +9,25 @@ import { usePaymentStore } from "@/store/paymentStore"
 import { usePhotoStore } from "@/store/photoStore"
 import { useQuestionnaireStore } from "@/store/questionnaireStore"
 
-const DASHBOARD_PATH = "/dashboard"
+/** Post-analysis home (`/home`), the interactive report (`/report`, also
+ * only reachable once analysis is complete), and the legacy `/dashboard`
+ * alias that now redirects to `/home`. */
+const HOME_PATHS = new Set(["/home", "/report", "/dashboard"])
 
 /**
- * The single place that decides where an incomplete user gets sent from
- * /dashboard. Each individual step guard (useQuestionnaireGuard,
- * usePhotoUploadGuard, useAnalysisGuard) only fetches its own status now
- * and bounces a user away from its OWN page once already complete --
- * none of them redirect away from /dashboard anymore.
+ * Sends incomplete users away from the post-analysis home (`/home`, or the
+ * legacy `/dashboard` alias) and the interactive report (`/report`). Waits
+ * until questionnaire/photos/payment/analysis statuses are all known, then
+ * picks one target via getNextOnboardingStep — one decision, not competing
+ * redirects.
  *
- * That used to be split across three independent effects, each calling
- * router.replace() the instant its own status fetch resolved, regardless
- * of whether the other two had resolved yet -- three redirects racing off
- * the same stale /dashboard pathname, with whichever resolved LAST
- * silently winning. A brand-new user with nothing completed could land on
- * /questionnaire, /photos, or /analysis depending on network timing
- * jitter alone (verified empirically: a fresh signup landed straight on
- * /analysis with zero questionnaire responses, zero photos, and zero
- * analysis results in the database).
- *
- * This hook waits until all three statuses are known, then picks exactly
- * one target via the shared getNextOnboardingStep priority order -- one
- * redirect decision, not three competing ones. It only matters for a
- * DIRECT visit to /dashboard (typed URL, bookmark, logo click, or a full
- * page reload while incomplete) -- completing a step navigates straight
- * to its own next step and never routes through /dashboard as a relay,
- * see getNextOnboardingStep's docstring.
+ * getNextOnboardingStep's own "completed" target is always `/home` (the
+ * single canonical next-step), but `/home` and `/report` are BOTH valid
+ * once onboarding is actually complete -- `/report` is reached via nav/CTA
+ * links, not a step in the funnel. So this only force-redirects when the
+ * user isn't done yet (target is an earlier step); once target === "/home"
+ * it leaves the user on whichever of /home or /report they're already on,
+ * rather than bouncing /report back to /home on every visit.
  */
 export function useOnboardingEntryGuard(enabled: boolean): void {
   const questionnaireCompleted = useQuestionnaireStore((state) => state.completed)
@@ -46,7 +39,7 @@ export function useOnboardingEntryGuard(enabled: boolean): void {
   const router = useRouter()
 
   useEffect(() => {
-    if (!enabled || pathname !== DASHBOARD_PATH) return
+    if (!enabled || !HOME_PATHS.has(pathname)) return
     if (
       questionnaireCompleted === null ||
       photosCompleted === null ||
@@ -63,7 +56,7 @@ export function useOnboardingEntryGuard(enabled: boolean): void {
       paymentSucceeded: paymentStatus === "succeeded",
       analysisStatus,
     })
-    if (target !== DASHBOARD_PATH) {
+    if (target !== "/home" && target !== pathname) {
       router.replace(target)
     }
   }, [

@@ -13,12 +13,15 @@ export default function AuthRouteGroupLayout({ children }: { children: React.Rea
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.replace("/dashboard")
+      router.replace("/home")
     }
   }, [isAuthenticated, router])
 
   // Wait out session restoration so a returning user does not briefly see
-  // the login/signup form before being sent to the dashboard.
+  // the login/signup form before being sent to the protected area --
+  // useOnboardingEntryGuard (protected layout) sorts out where they
+  // actually belong (questionnaire/photos/payment/analysis/home) once its
+  // own checks resolve, so this only needs to land inside /home.
   if (isAuthInitializing) {
     return (
       <div className="flex min-h-svh items-center justify-center">

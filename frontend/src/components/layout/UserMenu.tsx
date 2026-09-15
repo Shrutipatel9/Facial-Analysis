@@ -1,7 +1,8 @@
 "use client"
 
 import { Menu } from "@base-ui/react/menu"
-import { ChevronDown, LogOut } from "lucide-react"
+import { ChevronDown, LogOut, Settings } from "lucide-react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { toast } from "sonner"
@@ -30,14 +31,30 @@ function userInitials(fullName: string | null | undefined, email: string | undef
   return local.slice(0, 2).toUpperCase()
 }
 
+function displayLabel(fullName: string | null | undefined, email: string | undefined): string {
+  const name = fullName?.trim()
+  if (name) return name.split(/\s+/)[0] ?? name
+  if (!email) return "Account"
+  const local = email.split("@")[0] ?? email
+  return local.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Account"
+}
+
+interface UserMenuProps {
+  /** "workspace" matches the Milestone 2 reference pill (avatar + name). */
+  variant?: "default" | "workspace"
+}
+
 /**
- * Corner account control: round initials + chevron so it reads as a menu.
+ * Corner account control. Workspace variant shows initials + first name +
+ * chevron (reference header); default is compact avatar-only for onboarding.
  */
-export function UserMenu() {
+export function UserMenu({ variant = "default" }: UserMenuProps) {
   const user = useAuthStore((state) => state.user)
   const router = useRouter()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const initials = userInitials(user?.full_name, user?.email)
+  const label = displayLabel(user?.full_name, user?.email)
+  const isWorkspace = variant === "workspace"
 
   async function handleLogout() {
     try {
@@ -55,17 +72,33 @@ export function UserMenu() {
       <Menu.Root>
         <Menu.Trigger
           className={cn(
-            "group flex cursor-pointer items-center gap-1.5 rounded-full border border-primary/15 bg-card/90 py-1 pr-2.5 pl-1 shadow-sm outline-none transition",
-            "hover:border-primary/25 hover:bg-card hover:shadow-md",
+            "group flex cursor-pointer items-center outline-none transition",
             "focus-visible:ring-3 focus-visible:ring-ring/50",
-            "data-popup-open:border-primary/30 data-popup-open:bg-card data-popup-open:shadow-md"
+            isWorkspace
+              ? "h-9 gap-2 rounded-full bg-primary/10 py-1 pr-2.5 pl-1 hover:bg-primary/[0.14] data-popup-open:bg-primary/[0.14]"
+              : "gap-1.5 rounded-full border border-primary/15 bg-card/90 py-1 pr-2.5 pl-1 shadow-sm hover:border-primary/25 hover:bg-card data-popup-open:border-primary/30 data-popup-open:bg-card"
           )}
           aria-label="Account menu"
         >
-          <span className="flex size-8 items-center justify-center rounded-full bg-primary text-[11px] font-semibold tracking-wide text-primary-foreground ring-2 ring-primary/10">
+          <span
+            className={cn(
+              "flex items-center justify-center rounded-full bg-primary font-semibold tracking-wide text-primary-foreground",
+              isWorkspace ? "size-7 text-[10px]" : "size-8 text-[11px] ring-2 ring-primary/10"
+            )}
+          >
             {initials}
           </span>
-          <ChevronDown className="size-3.5 text-primary/60 transition duration-200 group-data-popup-open:rotate-180 group-hover:text-primary" />
+          {isWorkspace ? (
+            <span className="hidden max-w-[7rem] truncate text-sm font-medium text-foreground sm:inline">
+              {label}
+            </span>
+          ) : null}
+          <ChevronDown
+            className={cn(
+              "size-3.5 transition duration-200 group-data-popup-open:rotate-180",
+              isWorkspace ? "text-primary/70" : "text-primary/60 group-hover:text-primary"
+            )}
+          />
         </Menu.Trigger>
 
         <Menu.Portal>
@@ -97,6 +130,18 @@ export function UserMenu() {
               <div className="mx-3 border-t border-primary/10" />
 
               <div className="p-2">
+                <Menu.Item
+                  className={cn(
+                    "flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm outline-none transition",
+                    "data-highlighted:bg-primary/[0.07] data-highlighted:text-foreground"
+                  )}
+                  render={<Link href="/settings" />}
+                >
+                  <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Settings className="size-3.5" />
+                  </span>
+                  <span className="font-medium">Settings</span>
+                </Menu.Item>
                 <Menu.Item
                   className={cn(
                     "flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm outline-none transition",

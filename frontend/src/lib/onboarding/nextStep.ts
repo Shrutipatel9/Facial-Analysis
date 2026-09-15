@@ -1,6 +1,6 @@
 import type { AnalysisStatus } from "@/lib/analysis/analysisApi"
 
-export type OnboardingPath = "/questionnaire" | "/photos" | "/payment" | "/analysis" | "/dashboard"
+export type OnboardingPath = "/questionnaire" | "/photos" | "/payment" | "/analysis" | "/home"
 
 /**
  * The single source of truth for "where does this user belong right now,"
@@ -16,12 +16,12 @@ export type OnboardingPath = "/questionnaire" | "/photos" | "/payment" | "/analy
  * "processing" state.
  *
  * Completing a step should navigate DIRECTLY to this function's result,
- * never to /dashboard as a relay -- routing through /dashboard first (even
- * though (protected)/layout.tsx's guards would immediately bounce an
- * incomplete user onward) renders the actual dashboard page content for
- * one frame before the redirect effect fires, since by the time an earlier
- * step completes, the later guards have typically already resolved their
- * own status fetches in the background and stopped gating the loader.
+ * never through a relay route. Post-analysis home is `/home` (Home
+ * Overview — the MyFace reference's own post-approval landing screen, see
+ * docs/milestone2_home_and_report_spec.md §0/§1), not `/report` directly
+ * and not a separate Welcome dashboard. `/report`'s interactive TOC stays
+ * reachable from Home Overview's own "View Full Report" CTA and the
+ * persistent header's "Report" nav item.
  *
  * `photosIdentityConsistent` (added alongside the cross-photo identity
  * check -- see photoStore.ts's `identityCheck`) is deliberately a
@@ -29,10 +29,7 @@ export type OnboardingPath = "/questionnaire" | "/photos" | "/payment" | "/analy
  * required angle can individually pass BR-005's per-photo checks
  * (`photosCompleted: true`) while still not being the same person across
  * all three. Without this, a mismatched set sailed straight through to
- * /payment from any entry point that computes "what's next" (dashboard
- * entry, login, a completed questionnaire) -- the only thing stopping it
- * was usePhotoUploadGuard's own revisit-redirect, which only fires for a
- * user already sitting on /photos, not one arriving from anywhere else.
+ * /payment from any entry point that computes "what's next".
  * Pass `true` when photos are not complete yet (nothing to compare).
  * Once the set is complete, only an explicit `identityCheck.consistent
  * === true` counts — `null` means "still checking / unknown" after a
@@ -57,5 +54,5 @@ export function getNextOnboardingStep(params: {
   if (!params.photosCompleted || !params.photosIdentityConsistent) return "/photos"
   if (!params.paymentSucceeded) return "/payment"
   if (params.analysisStatus !== "completed") return "/analysis"
-  return "/dashboard"
+  return "/home"
 }

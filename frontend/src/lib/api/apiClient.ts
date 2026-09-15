@@ -7,6 +7,7 @@ export {
   authenticatedBlobRequest,
   authenticatedFormRequest,
   authenticatedRequest,
+  authenticatedStreamRequest,
   checkBackendHealth,
   publicRequest,
   refreshSession as refreshAccessToken,

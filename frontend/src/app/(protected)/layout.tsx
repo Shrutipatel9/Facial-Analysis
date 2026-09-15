@@ -1,15 +1,11 @@
 "use client"
 
-import { LayoutDashboard } from "lucide-react"
 import { motion } from "motion/react"
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect } from "react"
 
 import { BrandLoader } from "@/components/branding/BrandLoader"
-import { Logo } from "@/components/branding/Logo"
-import { UserMenu } from "@/components/layout/UserMenu"
-import { Button } from "@/components/ui/button"
+import { AppNavbar } from "@/components/layout/AppNavbar"
 import { useAnalysisGuard } from "@/hooks/useAnalysisGuard"
 import { useAuthGuard } from "@/hooks/useAuthGuard"
 import { useOnboardingEntryGuard } from "@/hooks/useOnboardingEntryGuard"
@@ -20,8 +16,19 @@ import * as reportApi from "@/lib/reports/reportApi"
 import { cn } from "@/lib/utils"
 import { useReportStore } from "@/store/reportStore"
 
-const FULL_BLEED = new Set(["/questionnaire", "/photos", "/payment", "/analysis", "/report"])
-const INNER_SCROLL = new Set(["/report"])
+const FULL_BLEED = new Set([
+  "/questionnaire",
+  "/photos",
+  "/payment",
+  "/analysis",
+  "/home",
+  "/report",
+  "/ai-visuals",
+  "/chat",
+  "/settings",
+])
+/** Sidebar + content panes that own their own scroll (not the outer main). */
+const INNER_SCROLL = new Set(["/home", "/report", "/ai-visuals", "/chat", "/settings"])
 
 export default function ProtectedRouteGroupLayout({ children }: { children: React.ReactNode }) {
   const { isChecking: isAuthChecking } = useAuthGuard()
@@ -41,12 +48,11 @@ export default function ProtectedRouteGroupLayout({ children }: { children: Reac
   useOnboardingEntryGuard(!isAuthChecking)
   const pathname = usePathname()
   const isFullBleed = FULL_BLEED.has(pathname)
-  // Report owns its own right-pane scroll so the scan logo stays fixed.
   const usesInnerScroll = INNER_SCROLL.has(pathname)
   const hasReport = useReportStore((state) => state.hasReport)
   const setHasReport = useReportStore((state) => state.setHasReport)
 
-  // Dashboard nav only after at least one report exists (FR-017 workspace).
+  // Workspace nav (Report / AI Visuals / Chat) only after ≥1 report exists.
   useEffect(() => {
     if (isChecking || hasReport !== null) return
     let cancelled = false
@@ -82,30 +88,13 @@ export default function ProtectedRouteGroupLayout({ children }: { children: Reac
         <div className="absolute right-[-8%] bottom-[-15%] h-[24rem] w-[24rem] rounded-full bg-primary/[0.05] blur-3xl" />
       </div>
 
-      <motion.header
+      <motion.div
         initial={{ opacity: 0, y: -6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: "easeOut" }}
-        className="z-40 shrink-0 border-b border-primary/10 bg-primary/[0.07] backdrop-blur-xl"
       >
-        <div className="flex h-14 items-center justify-between px-5 sm:px-8">
-          <Logo href="/dashboard" size="md" />
-          <div className="flex items-center gap-2">
-            {pathname !== "/dashboard" && hasReport ? (
-              <Button
-                variant="ghost"
-                className="h-9 rounded-full px-3.5"
-                render={<Link href="/dashboard" />}
-                nativeButton={false}
-              >
-                <LayoutDashboard className="size-4" />
-                Dashboard
-              </Button>
-            ) : null}
-            <UserMenu />
-          </div>
-        </div>
-      </motion.header>
+        <AppNavbar hasReport={hasReport === true} />
+      </motion.div>
 
       <motion.main
         initial={{ opacity: 0 }}

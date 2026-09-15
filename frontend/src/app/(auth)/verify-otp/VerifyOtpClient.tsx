@@ -39,16 +39,16 @@ export function VerifyOtpClient() {
   function handleSuccess(tokens: TokenResponse) {
     acceptAuthTokens(tokens)
     // A brand-new signup is guaranteed to have nothing completed yet, so
-    // send it straight to /questionnaire -- no need to land on /dashboard
-    // first just to have useOnboardingEntryGuard immediately bounce it
-    // onward. A login, on the other hand, could be at any stage, so it
-    // still goes through /dashboard and lets that guard chain decide.
+    // send it straight to /questionnaire -- no need to land on /home first
+    // just to have useOnboardingEntryGuard immediately bounce it onward. A
+    // login, on the other hand, could be at any stage, so it still goes
+    // through /home and lets that guard chain decide.
     if (purpose === "signup") {
       toast.success("Account created. Let's get started.")
       router.replace("/questionnaire")
     } else {
       toast.success("Welcome! You're all set.")
-      router.replace("/dashboard")
+      router.replace("/home")
     }
   }
 
