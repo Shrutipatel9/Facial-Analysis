@@ -30,6 +30,11 @@ export function FeatureSection({
 }) {
   const label = FEATURE_LABELS[feature]
   const labelLower = label.toLowerCase()
+  // Fallback for the header when summary_callout is unexpectedly empty --
+  // summary_callout is always populated in practice (see
+  // report_assembly_service.py's templated fallback), so this branch is
+  // rarely hit either way.
+  const firstSectionContent = Object.values(data.sections)[0] ?? ""
 
   return (
     <motion.div
@@ -50,8 +55,8 @@ export function FeatureSection({
           </p>
         ) : (
           <p className="text-sm leading-relaxed" style={{ color: meridian.ink.muted }}>
-            {data.narrative.slice(0, 160)}
-            {data.narrative.length > 160 ? "…" : ""}
+            {firstSectionContent.slice(0, 160)}
+            {firstSectionContent.length > 160 ? "…" : ""}
           </p>
         )}
       </header>
@@ -86,10 +91,24 @@ export function FeatureSection({
         </div>
       ) : null}
 
-      <div className="space-y-2 text-sm leading-relaxed" style={{ color: meridian.ink.muted }}>
-        <p>{data.narrative}</p>
+      <div className="space-y-4">
+        {Object.entries(data.sections).map(([heading, content]) => (
+          <div key={heading} className="space-y-1.5">
+            <h3 className="text-sm font-semibold tracking-tight" style={{ color: meridian.ink.primary }}>
+              {heading}
+            </h3>
+            <p className="text-sm leading-relaxed" style={{ color: meridian.ink.muted }}>
+              {content}
+            </p>
+            {/* The illustrated stage scale sits inside the "Hair Loss" sub-section, right after its
+                own prose -- matching report_pdf_service.py's same interleaving in the PDF. */}
+            {feature === "hair" && heading === "Hair Loss" && hairLoss ? (
+              <HairLossScale stage={hairLoss.stage} label={hairLoss.label} />
+            ) : null}
+          </div>
+        ))}
         {data.strengths ? (
-          <p>
+          <p className="text-sm leading-relaxed" style={{ color: meridian.ink.muted }}>
             <span className="font-medium" style={{ color: meridian.ink.primary }}>
               Strengths:{" "}
             </span>
@@ -97,7 +116,7 @@ export function FeatureSection({
           </p>
         ) : null}
         {data.areas_of_note ? (
-          <p>
+          <p className="text-sm leading-relaxed" style={{ color: meridian.ink.muted }}>
             <span className="font-medium" style={{ color: meridian.ink.primary }}>
               Areas of note:{" "}
             </span>
@@ -105,15 +124,6 @@ export function FeatureSection({
           </p>
         ) : null}
       </div>
-
-      {hairLoss ? (
-        <div className="space-y-2">
-          <h3 className="text-sm font-semibold tracking-tight" style={{ color: meridian.ink.primary }}>
-            Hair Loss
-          </h3>
-          <HairLossScale stage={hairLoss.stage} label={hairLoss.label} />
-        </div>
-      ) : null}
 
       {data.projected_potential.length > 0 ? (
         <ul className="space-y-1 pl-1 text-sm" style={{ color: meridian.ink.muted }}>

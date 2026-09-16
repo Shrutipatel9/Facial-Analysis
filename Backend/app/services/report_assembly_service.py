@@ -156,20 +156,28 @@ def feature_recommendation_tier(recommendation_ideas: list[str]) -> str | None:
     return None  # unreachable in practice -- _classify_one always returns one of the three tiers above
 
 
-def classify_recommendations(features: dict[str, dict[str, Any]], closing_recommendations: str) -> dict[str, list[str]]:
-    """Buckets every feature's recommendation_ideas (plus the closing
-    recommendations text, sentence-split) into the three FR-012 tiers.
-    First-pass keyword heuristic -- see module docstring."""
+def classify_recommendations(features: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
+    """Buckets every feature's recommendation_ideas into the three FR-012
+    tiers. First-pass keyword heuristic -- see module docstring.
+
+    Previously also sentence-split `closing_recommendations` (the 4-
+    paragraph narrative synthesis) into tier items; removed 2026-09-17
+    (user-reported) -- that text is descriptive prose ("Overall facial
+    harmony is well supported by balanced structural ratios..."), not a
+    list of discrete suggestions, so splitting it on ". " and bucketing the
+    fragments padded Treatment Protocol phases with long, paragraph-style
+    fragments instead of clean, short, actionable points. Only
+    `recommendation_ideas` are used now -- the AI prompt already asks for
+    those as "1-3 short, complete suggestion sentences" per feature, i.e.
+    already shaped like the point Treatment Protocol needs. The closing
+    synthesis still gets its own dedicated display (Closing Recommendations
+    page/section, via `sections["closing_recommendations"]` below) -- this
+    just stops it from being double-shown as Treatment Protocol bullets."""
     tiers: dict[str, list[str]] = {"at_home": [], "otc_skincare": [], "in_clinic": []}
 
     for feature_data in features.values():
         for idea in feature_data.get("recommendation_ideas", []) or []:
             tiers[_classify_one(idea)].append(idea)
-
-    for sentence in closing_recommendations.split(". "):
-        cleaned = sentence.strip().rstrip(".")
-        if cleaned:
-            tiers[_classify_one(cleaned)].append(cleaned if cleaned.endswith((".", "!", "?")) else f"{cleaned}.")
 
     return tiers
 
@@ -218,7 +226,13 @@ def assemble_sections(
         }
         recommendation_ideas = narrative_entry.get("recommendation_ideas", []) or []
         features[feature] = {
-            "narrative": narrative_entry.get("narrative", ""),
+            # Per-feature named narrative sub-sections (e.g. hair's "Hair
+            # Style"/"Hair Loss"/"Hair Health") -- see ai_narrative_service.
+            # py's _FEATURE_SUBSECTIONS. Already sanitized to that feature's
+            # own heading vocabulary, in canonical order, there; {} for a
+            # pre-this-change narrative_result or when nothing was
+            # confidently written.
+            "sections": narrative_entry.get("sections") or {},
             "summary_callout": narrative_entry.get("summary_callout") or _teaser_summary_callout(measurement),
             "strengths": narrative_entry.get("strengths", ""),
             "areas_of_note": narrative_entry.get("areas_of_note", ""),
@@ -268,7 +282,7 @@ def assemble_sections(
         "feature_scores": {feature: score.to_dict() for feature, score in feature_scores.items()},
         "overall_score": overall_score,
         "harmony_chart": harmony_chart,
-        "recommendations": classify_recommendations(narrative_features, closing_recommendations),
+        "recommendations": classify_recommendations(narrative_features),
         "closing_recommendations": closing_recommendations,
         # report_design_spec.md v3.0 §15/§13.3 -- both come straight from
         # ai_narrative_service's own best-effort parse (already None when

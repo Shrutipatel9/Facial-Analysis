@@ -1,11 +1,14 @@
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from openai import APIConnectionError, APITimeoutError, BadRequestError, PermissionDeniedError, RateLimitError
 
 from app.services.image_generation_service import (
     ImageGenerationClient,
     ImageGenerationError,
     _classify_api_error,
+    _classify_openai_error,
     _extract_inline_image,
     generate_with_retry,
 )
@@ -139,5 +142,50 @@ class TestClassifyApiError:
 
     def test_unrecognized_code_is_unknown_and_not_retryable(self):
         reason, retryable = _classify_api_error(_FakeApiError(500))  # type: ignore[arg-type]
+        assert reason == "unknown"
+        assert retryable is False
+
+
+def _httpx_request() -> httpx.Request:
+    return httpx.Request("POST", "https://api.openai.com/v1/images/edits")
+
+
+def _httpx_response(status_code: int) -> httpx.Response:
+    return httpx.Response(status_code=status_code, request=_httpx_request())
+
+
+class TestClassifyOpenAiError:
+    """OpenAIImageGenerationClient's error classifier (unlike Gemini's
+    single APIError-with-a-.code shape, the openai SDK raises a distinct
+    exception subclass per failure kind, so this classifies by type, not
+    by code)."""
+
+    def test_rate_limit_error_is_rate_limited_and_retryable(self):
+        exc = RateLimitError("rate limited", response=_httpx_response(429), body=None)
+        reason, retryable = _classify_openai_error(exc)
+        assert reason == "rate_limited"
+        assert retryable is True
+
+    def test_timeout_error_is_timeout_and_retryable(self):
+        exc = APITimeoutError(request=_httpx_request())
+        reason, retryable = _classify_openai_error(exc)
+        assert reason == "timeout"
+        assert retryable is True
+
+    def test_bad_request_error_is_content_policy_refusal_and_not_retryable(self):
+        exc = BadRequestError("bad request", response=_httpx_response(400), body=None)
+        reason, retryable = _classify_openai_error(exc)
+        assert reason == "content_policy_refusal"
+        assert retryable is False
+
+    def test_permission_denied_error_is_content_policy_refusal_and_not_retryable(self):
+        exc = PermissionDeniedError("forbidden", response=_httpx_response(403), body=None)
+        reason, retryable = _classify_openai_error(exc)
+        assert reason == "content_policy_refusal"
+        assert retryable is False
+
+    def test_unrecognized_error_is_unknown_and_not_retryable(self):
+        exc = APIConnectionError(request=_httpx_request())
+        reason, retryable = _classify_openai_error(exc)
         assert reason == "unknown"
         assert retryable is False

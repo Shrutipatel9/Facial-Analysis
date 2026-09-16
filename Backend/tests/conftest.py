@@ -11,13 +11,23 @@ existing, and use the email_sender fixture below to intercept sends anyway.
 Same reasoning applies to IMAGE_GEN_API_KEY (BR-006: real image-gen API
 calls must never run in automated tests): the ai-visuals/report-visual
 integration tests rely on generation failing *fast* (a missing key short-
-circuits in GeminiImageGenerationClient.__init__ with no network call) to
-assert on settlement within a few seconds -- they were never mocking the
-Gemini client boundary directly. Before this override existed, a developer
-who added a real key to their local .env (e.g. to manually verify AI
-Visuals in the browser) would silently make the whole suite start issuing
-real, billed Gemini requests the moment they next ran `pytest`, discovered
-only via these two tests timing out against the live API's actual latency.
+circuits in GeminiImageGenerationClient.__init__/OpenAIImageGenerationClient
+.__init__ with no network call) to assert on settlement within a few
+seconds -- they were never mocking the image-gen client boundary directly.
+Before this override existed, a developer who added a real key to their
+local .env (e.g. to manually verify AI Visuals in the browser) would
+silently make the whole suite start issuing real, billed image-gen
+requests the moment they next ran `pytest`, discovered only via these two
+tests timing out against the live API's actual latency.
+
+AI_API_KEY is blanked here too (2026-09-17) -- not because narrative-
+generation tests need it blank (they monkeypatch ai_narrative_service.
+get_ai_client() directly via the `ai_recorder` fixture, which never
+touches Settings.ai_api_key at all), but because Settings.
+_default_image_gen_api_key (app/core/config.py) now falls back
+IMAGE_GEN_API_KEY to AI_API_KEY when the former is unset -- leaving
+AI_API_KEY as the developer's real key would silently re-open the exact
+image-gen hole the IMAGE_GEN_API_KEY override above exists to close.
 """
 
 import json
@@ -26,6 +36,7 @@ from types import SimpleNamespace
 
 os.environ["DATABASE_URL"] = "postgresql+asyncpg://facial_analysis:facial_analysis@localhost:5433/facial_analysis_test"
 os.environ["EMAIL_PROVIDER"] = "console"
+os.environ["AI_API_KEY"] = ""
 os.environ["IMAGE_GEN_API_KEY"] = ""
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:3000")
 # Regardless of the developer's local .env (same posture as EMAIL_PROVIDER
@@ -45,6 +56,7 @@ import app.models  # noqa: F401  -- registers models on Base.metadata
 from app.core.rate_limit import limiter
 from app.db.base import Base
 from app.db.session import async_session_factory, engine
+from app.services.ai_narrative_service import _FEATURE_SUBSECTIONS
 from app.services.facial_measurement_service import ANALYSIS_FEATURES
 
 # Cookie-authenticated endpoints require these (app/core/csrf.py).
@@ -132,12 +144,14 @@ def _fake_completion_response() -> SimpleNamespace:
     """A minimal fake OpenAI-shaped chat-completion response carrying a
     valid narrative JSON body -- shared by every test that needs a
     successful ai_narrative_service.generate_narrative() call without a
-    real DeepSeek/OpenAI request."""
+    real OpenAI request. `sections` headings are built from the real
+    _FEATURE_SUBSECTIONS vocabulary (not hardcoded strings here) so this
+    fixture can't silently drift out of sync with it."""
     content = json.dumps(
         {
             "features": {
                 feature: {
-                    "narrative": f"Narrative for {feature}.",
+                    "sections": {heading: f"{heading} for {feature}." for heading in _FEATURE_SUBSECTIONS[feature]},
                     "summary_callout": feature,
                     "strengths": "Looks natural.",
                     "areas_of_note": "None notable.",

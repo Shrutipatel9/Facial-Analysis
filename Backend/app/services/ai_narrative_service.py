@@ -70,8 +70,42 @@ _FEATURE_ATTRIBUTE_KEYS: dict[str, tuple[str, ...]] = {
     "ears": ("symmetry", "prominence", "position"),
 }
 
+
 def _attribute_vocabulary_prompt() -> str:
     lines = [f"- {feature}: {', '.join(keys)}" for feature, keys in _FEATURE_ATTRIBUTE_KEYS.items()]
+    return "\n".join(lines)
+
+
+# Per-feature named sub-section headings -- 2026-09-17, user-directed: a
+# full re-check of the client's reference PDF found every feature page is
+# actually broken into multiple separately-headed narrative sub-sections
+# (e.g. Hair: "Hair Style" / "Hair Loss" / "Hair Health"; Eyebrows+Eyes:
+# "Eyebrows" / "Eyelashes" / "Eyes" / "Under eye"), not the single
+# `narrative` paragraph this project generated until now -- replaces that
+# field with a `sections` object keyed by exactly these headings, same
+# "sanitize against a fixed vocabulary" pattern as _FEATURE_ATTRIBUTE_KEYS
+# above (see _sanitize_sections). Single-section features keep the same
+# heading report_pdf_service.py's retired _PRIMARY_SUBHEADING dict already
+# used, so only Hair/Eyebrows/Eyes/Neck actually gain new distinct
+# sub-sections; the others just get a longer, deeper version of what they
+# already had under the same heading.
+_FEATURE_SUBSECTIONS: dict[str, tuple[str, ...]] = {
+    "hair": ("Hair Style", "Hair Loss", "Hair Health"),
+    "eyebrows": ("Eyebrows", "Eyelashes"),
+    "eyes": ("Eyes", "Under Eye"),
+    "nose": ("Nose",),
+    "cheeks": ("Cheek Structure",),
+    "jaw": ("Jaw Structure",),
+    "lips": ("Lips",),
+    "chin": ("Chin",),
+    "skin": ("Skincare Protocol",),
+    "neck": ("Neck Size", "Neck Skin"),
+    "ears": ("Ear Structure",),
+}
+
+
+def _subsection_vocabulary_prompt() -> str:
+    lines = [f"- {feature}: {', '.join(headings)}" for feature, headings in _FEATURE_SUBSECTIONS.items()]
     return "\n".join(lines)
 
 
@@ -83,26 +117,37 @@ _SYSTEM_PROMPT = (
     "features, in this order: "
     f"{', '.join(ANALYSIS_FEATURES)}. "
     "For each feature, first classify it into the named attributes listed below for that "
-    "feature -- short plain-language values (e.g. \"Wide\", \"Soft arch\", \"Moderate\"), "
+    'feature -- short plain-language values (e.g. "Wide", "Soft arch", "Moderate"), '
     "assessed directly from the photos. Omit a key entirely (do not include it in the "
     "attributes object) whenever it genuinely isn't assessable from the photos (covered, "
     "cropped out of frame, unclear angle) -- never guess a value just to fill every key. "
     "Attribute vocabulary per feature (classify only these keys, per feature):\n"
     f"{_attribute_vocabulary_prompt()}\n"
-    "For each feature, write specific, informational observations grounded in "
-    "the actual measurements, photos, and your own attribute classifications above -- "
-    "never generic filler. Naturally weave at least 2-3 of that feature's classified "
-    "attribute values into the narrative sentences themselves (e.g. \"a soft arch "
-    "brow in a mid-set position with thick density\"), the same way you'd cite a "
-    "measurement -- write it as natural prose, never as a raw 'key: value' pair or "
-    "the literal attribute key name. When a "
-    "feature's measurement data shows it is available, naturally cite the actual "
-    "metric value in at least one sentence of the narrative (e.g. \"your eye width "
-    "ratio of 0.42...\"), not just a vague reference to \"the measurements\" -- when "
-    "no measurement is available for a feature, ground the narrative in the photos "
-    "and your attribute classifications instead. "
+    "Second, write one detailed narrative sub-section per named heading listed below for "
+    "that feature -- most features have one heading, some have two or three; write a "
+    "separate, substantial entry for each one, never combining multiple headings into a "
+    "single entry or leaving one out. Sub-section headings per feature (write exactly these "
+    "headings, per feature, nothing else):\n"
+    f"{_subsection_vocabulary_prompt()}\n"
+    "Each sub-section's content must be 4-7 sentences of specific, informational "
+    "observations grounded in the actual measurements, photos, and your own attribute "
+    "classifications above -- never generic filler, and never a short summary; this is the "
+    "detailed body of the report, matching the depth of a real clinical-style write-up. "
+    "Naturally weave at least 2-3 of that feature's classified attribute values into each "
+    "sub-section's sentences (e.g. \"a soft arch brow in a mid-set position with thick "
+    "density\"), the same way you'd cite a measurement -- write it as natural prose, never "
+    "as a raw 'key: value' pair or the literal attribute key name; when a feature has "
+    "multiple sub-sections, don't just repeat the same attributes in each one -- draw out "
+    "what's specifically relevant to that sub-section's own topic (e.g. Hair's \"Hair Loss\" "
+    'sub-section should focus on hairline/density/thinning-relevant attributes, while "Hair '
+    "Style\" focuses on texture/parting/styling-relevant ones). When a feature's measurement "
+    "data shows it is available, naturally cite the actual metric value in at least one "
+    'sentence across that feature\'s sub-sections (e.g. "your eye width ratio of 0.42..."), '
+    'not just a vague reference to "the measurements" -- when no measurement is available '
+    "for a feature, ground every sub-section in the photos and your attribute "
+    "classifications instead. "
     "Use the questionnaire context to personalize tone, not to invent facts: "
-    "reference the user's stated goal (\"What is your goal?\") when framing ambition "
+    'reference the user\'s stated goal ("What is your goal?") when framing ambition '
     "in the closing recommendations, and their stated motivation for signing up so "
     "the closing paragraph reads as synthesis of this specific user, not boilerplate. "
     "When discussing a feature the user explicitly named as something they like most "
@@ -112,7 +157,7 @@ _SYSTEM_PROMPT = (
     "preoccupation with it, use an especially measured, reassuring tone throughout and "
     "reinforce more explicitly than usual that this report is informational only, not "
     "a judgment. Never reference the user's answers about medical conditions, "
-    "medications, or allergies anywhere in the narrative -- those exist for internal "
+    "medications, or allergies anywhere in any sub-section -- those exist for internal "
     "context only, never for cosmetic commentary. "
     "Tone is strictly informational, never diagnostic or prescriptive: never claim a "
     "medical diagnosis, never say a treatment is required, and always frame any "
@@ -125,30 +170,31 @@ _SYSTEM_PROMPT = (
     "you could actually classify, each a short plain-language value string (never the raw key "
     "name as the value, never a key not in that feature's own vocabulary list, never every key "
     "forced-filled); "
-    '"narrative" -- 3-5 sentences of detailed, specific observations, grounded in the '
-    "measurements/photos as described above; "
+    '"sections" -- an object keyed by exactly that feature\'s own sub-section headings from '
+    "the list above (all of them, never a subset, never a heading outside that feature's own "
+    "list), each value a 4-7 sentence sub-section body as described above; "
     '"summary_callout" -- one full sentence summarizing this feature "at a glance", suitable for '
-    'a report overview table; '
+    "a report overview table; "
     '"strengths" -- one short sentence naming something that is already working well for this '
-    'feature, evidence-grounded, never fabricated praise; '
+    "feature, evidence-grounded, never fabricated praise; "
     '"areas_of_note" -- one short sentence naming something worth being aware of for this '
     'feature, or "None notable." if genuinely nothing stands out -- never invented just to fill '
-    'the field; '
+    "the field; "
     'and "recommendation_ideas" (an array of 1-3 short strings, each a complete suggestion '
-    'sentence)), '
+    "sentence)), "
     '"closing_recommendations" (a synthesis across all 11 features, personalized per the goal/'
     "motivation guidance above, written as exactly 4 short paragraphs separated by a blank line "
     "(\\n\\n) in this fixed order: (1) overall facial harmony and the primary structural/skeletal "
     "priorities, (2) the periorbital/eye region and its priorities, (3) hair and lower-face "
     "grooming priorities, (4) a practical, sequenced next-steps paragraph -- every point made "
     "across these 4 paragraphs must trace back to a finding already covered in the per-feature "
-    "narratives above, never a new finding introduced here for the first time), "
+    "sections above, never a new finding introduced here for the first time), "
     '"facial_age" (your best estimate of the subject\'s apparent age from the photos alone, as '
     'an object {"estimate": <integer years>, "note": <one short sentence of context>} -- this is '
     "an apparent-age visual estimate, not a medical or biological age claim; if the photos "
     "genuinely don't give you enough to estimate confidently, use JSON null instead of guessing), "
     'and "hair_loss" (an object {"stage": <integer 1-7>, "label": <short plain-language stage '
-    'name>} placing the subject on a 7-point scale from 1=no visible thinning/recession to '
+    "name>} placing the subject on a 7-point scale from 1=no visible thinning/recession to "
     "7=extensive/advanced hair loss, based only on what's visible in the photos -- use JSON null "
     "if hair is not clearly visible enough to assess, e.g. covered, cropped out of frame, or a "
     "camera angle that doesn't show the hairline)."
@@ -179,8 +225,7 @@ def get_ai_client() -> AsyncOpenAI:
     settings = get_settings()
     if not settings.ai_api_key:
         raise AIProviderError(
-            "AI_API_KEY is not configured -- add a real key to Backend/.env before "
-            "triggering analysis."
+            "AI_API_KEY is not configured -- add a real key to Backend/.env before triggering analysis."
         )
     return AsyncOpenAI(
         api_key=settings.ai_api_key,
@@ -277,6 +322,22 @@ def _sanitize_attributes(feature: str, raw: Any) -> dict[str, str]:
     return {key: value for key, value in raw.items() if key in allowed and isinstance(value, str) and value}
 
 
+def _sanitize_sections(feature: str, raw: Any) -> dict[str, str]:
+    """Same sanitize-against-a-fixed-vocabulary posture as
+    _sanitize_attributes, for the per-feature narrative sub-sections
+    (_FEATURE_SUBSECTIONS) -- drops any hallucinated heading not in that
+    feature's own list and any non-string/empty value. Unlike
+    _sanitize_attributes, iterates the vocabulary (not `raw`) so the
+    result always comes back in the fixed canonical heading order
+    regardless of what order the model emitted them in -- report_pdf_
+    service.py and FeatureSection.tsx both render sections in whatever
+    order this dict returns, with no re-sorting of their own."""
+    if not isinstance(raw, dict):
+        return {}
+    allowed = _FEATURE_SUBSECTIONS.get(feature, ())
+    return {heading: raw[heading] for heading in allowed if isinstance(raw.get(heading), str) and raw[heading]}
+
+
 def _parse_response(raw_content: str) -> NarrativeResult:
     try:
         parsed = json.loads(raw_content)
@@ -296,6 +357,7 @@ def _parse_response(raw_content: str) -> NarrativeResult:
         entry = features[feature]
         if isinstance(entry, dict):
             entry["attributes"] = _sanitize_attributes(feature, entry.get("attributes"))
+            entry["sections"] = _sanitize_sections(feature, entry.get("sections"))
 
     # facial_age/hair_loss are best-effort estimates layered onto the same
     # call -- a missing, null, or malformed value here means "the model
@@ -326,6 +388,15 @@ async def generate_narrative(
                 {"role": "user", "content": user_content},
             ],
             response_format={"type": "json_object"},
+            # 2026-09-17: the expanded per-feature `sections` content (up to
+            # 16 separately-headed 4-7 sentence sub-sections across the 11
+            # features, replacing one 3-5 sentence narrative each) pushes
+            # estimated total output past a plausible default completion-
+            # token ceiling (~3.5-4k tokens estimated vs a common ~4096
+            # default) -- an explicit, generous max_tokens avoids a silently
+            # truncated response that then fails JSON parsing in
+            # _parse_response, well under gpt-4o's real output limit.
+            max_tokens=8192,
         )
     except OpenAIError as exc:
         raise AIProviderError(f"AI provider request failed: {exc}") from exc

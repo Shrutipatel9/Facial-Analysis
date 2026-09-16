@@ -144,7 +144,7 @@ function ChatConversation() {
         </div>
 
         <div className="shrink-0 px-5 pb-5 sm:px-6 sm:pb-6">
-          <div className="mx-auto w-full max-w-xl">
+          <div className="mx-auto w-full max-w-4xl">
             <ChatInput hasSentFirstMessage={hasMessages} disabled={isSending} onSend={handleSend} />
           </div>
         </div>

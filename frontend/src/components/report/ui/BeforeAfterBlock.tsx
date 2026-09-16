@@ -92,41 +92,41 @@ export function BeforeAfterBlock({
 
   return (
     <div
-      className="mx-auto w-full max-w-md overflow-hidden rounded-xl"
+      className="w-fit max-w-full overflow-hidden rounded-xl"
       style={{ border: `1px solid ${meridian.surface.recessed}` }}
     >
-      <div className="grid grid-cols-2">
-        <figure className="m-0">
+      <div className="grid grid-cols-2" style={{ backgroundColor: meridian.surface.recessed }}>
+        <figure className="m-0 flex flex-col items-center">
           {beforeImageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- authenticated blob URL
             <img
               src={beforeImageUrl}
               alt={`${featureLabel} before`}
-              className="aspect-[4/5] w-full object-cover"
+              className="h-36 w-auto max-w-[9.5rem] object-contain sm:h-40 sm:max-w-[10.5rem]"
             />
           ) : (
-            <div
-              className="flex aspect-[4/5] items-center justify-center"
-              style={{ backgroundColor: meridian.surface.recessed }}
-            />
+            <div className="flex h-36 w-28 items-center justify-center sm:h-40" />
           )}
           <figcaption
-            className="py-1.5 text-center text-[10px] font-medium tracking-[0.08em] uppercase"
-            style={{ color: meridian.ink.muted }}
+            className="w-full py-1.5 text-center text-[10px] font-medium tracking-[0.08em] uppercase"
+            style={{ backgroundColor: meridian.surface.card, color: meridian.ink.muted }}
           >
             Before
           </figcaption>
         </figure>
-        <figure className="m-0 border-l" style={{ borderColor: meridian.surface.recessed }}>
+        <figure
+          className="m-0 flex flex-col items-center border-l"
+          style={{ borderColor: meridian.surface.recessed }}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element -- authenticated blob URL */}
           <img
             src={afterUrl}
             alt={`${featureLabel} after, AI-generated`}
-            className="aspect-[4/5] w-full object-cover"
+            className="h-36 w-auto max-w-[9.5rem] object-contain sm:h-40 sm:max-w-[10.5rem]"
           />
           <figcaption
-            className="py-1.5 text-center text-[10px] font-medium tracking-[0.08em] uppercase"
-            style={{ color: meridian.ink.muted }}
+            className="w-full py-1.5 text-center text-[10px] font-medium tracking-[0.08em] uppercase"
+            style={{ backgroundColor: meridian.surface.card, color: meridian.ink.muted }}
           >
             After
           </figcaption>

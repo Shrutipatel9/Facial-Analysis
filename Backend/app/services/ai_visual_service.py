@@ -1,19 +1,27 @@
 """AI visual-preview orchestration (FR-020, Milestone 2 Phase 11) --
-hairstyle/outfit/aging, shared across all three ai-visuals-* modules (see
-D:\\zzz\\ai-visuals-hairstyle\\plans.md). Mirrors report_visual_service.py's
+hairstyle/outfit/aging/potential, shared across all four ai-visuals-* kinds
+(see D:\\zzz\\ai-visuals-hairstyle\\plans.md). Mirrors report_visual_service.py's
 split (orchestration+DB here, the actual vendor call in
 image_generation_service.py) and its BR-006 cost-control posture: generation
 triggers exactly once per (user, kind) -- the row-existence check in
 get_or_create_visuals is the one-time trigger signal, identical convention
-to report_service.get_or_create_report. `failed` is terminal this phase --
-no auto-retry-on-read, no user-facing regenerate action.
+to report_service.get_or_create_report. A content-policy refusal is
+terminal; a transient failure (rate-limited/timeout) is retried the next
+time get_or_create_visuals is called for that kind -- see
+_all_retryable_failures/_reset_for_retry. POST /ai-visuals/{kind} (the same
+call the frontend already makes on page load) doubles as the "retry"
+action; there is no separate retry endpoint.
 
 Hairstyle/outfit variations come from a templated catalog
 (ai_visual_catalog.py), not a new AI text-generation call -- only the
 preview image itself is AI-generated. Aging needs no catalog: its 3
 generated steps are fixed by the confirmed cadence
 (client_requirements.md FR-020, v1.25) -- the 4th "current" card is the
-user's own real photo, never a row in this table.
+user's own real photo, never a row in this table. Potential (2026-09-18,
+user-directed) is a single whole-face "after" image, also with no
+catalog -- its one row's prompt is composed from the user's own
+already-generated Priority Features recommendations (see
+_build_potential_rows), not a new AI text call either.
 """
 
 import asyncio
@@ -31,6 +39,7 @@ from app.models.ai_visual import AiVisual
 from app.models.facial_analysis_result import FacialAnalysisResult
 from app.services import photo_service
 from app.services.ai_visual_catalog import HAIRSTYLE_CATALOG, OUTFIT_CATALOG, VariationArchetype, select_variations
+from app.services.facial_measurement_service import ANALYSIS_FEATURES
 from app.services.image_generation_service import (
     IDENTITY_PRESERVATION_INSTRUCTION,
     ImageGenerationError,
@@ -38,10 +47,16 @@ from app.services.image_generation_service import (
     get_image_generation_client,
 )
 from app.services.photo_storage import get_photo_storage
+from app.services.report_assembly_service import assemble_sections
 
 logger = logging.getLogger(__name__)
 
-VALID_KINDS: frozenset[str] = frozenset({"hairstyle", "outfit", "aging"})
+VALID_KINDS: frozenset[str] = frozenset({"hairstyle", "outfit", "aging", "potential"})
+# Generic, honest fallback when no feature is flagged "Needs Attention" --
+# still worth generating *something* for "Potential" rather than skipping
+# it, but never inventing a specific finding that doesn't exist.
+_POTENTIAL_FALLBACK_SUGGESTION = "an overall healthier, refined, and well-groomed appearance"
+_POTENTIAL_PRIORITY_FEATURE_COUNT = 3
 # Transient Gemini failures that are safe to re-trigger without inventing
 # a new user-facing "regenerate" product action -- BR-006 still forbids
 # auto-retry of content-policy refusals.
@@ -108,6 +123,55 @@ def _build_aging_rows(user_id: uuid.UUID) -> list[AiVisual]:
     ]
 
 
+def _build_potential_rows(user_id: uuid.UUID, analysis: FacialAnalysisResult) -> list[AiVisual]:
+    """Exactly one row -- "Potential" is a single whole-face "after" image,
+    not a catalog of alternatives (no `_VARIATION_COUNT`/select_variations
+    the way hairstyle/outfit have). Its prompt content is composed here
+    (at row-creation time, stored in `explanation` for _build_prompt to
+    read later -- same slot hairstyle/outfit already use to carry
+    prompt-building data) from the same Priority Features data
+    PriorityFeaturesList.tsx and the PDF's Overview page already show:
+    the lowest-scoring "Needs Attention" features' own first
+    recommendation each, reusing report_assembly_service.assemble_sections
+    (a pure function, already computes this) rather than re-deriving
+    feature scores here. No new AI text-generation call."""
+    sections = assemble_sections(
+        analysis.measurements or {}, analysis.narrative_result or {}, analysis.facial_assessments or {}
+    )
+    feature_scores = sections.get("feature_scores", {})
+    priority_features = sorted(
+        (
+            feature
+            for feature in ANALYSIS_FEATURES
+            if (feature_scores.get(feature) or {}).get("available")
+            and feature_scores[feature].get("score") is not None
+            and feature_scores[feature].get("label") == "Needs Attention"
+        ),
+        key=lambda feature: feature_scores[feature]["score"],
+    )[:_POTENTIAL_PRIORITY_FEATURE_COUNT]
+
+    ideas: list[str] = []
+    for feature in priority_features:
+        feature_ideas = (sections.get("features", {}).get(feature) or {}).get("projected_potential") or []
+        if feature_ideas:
+            ideas.append(feature_ideas[0])
+
+    suggestion = "; ".join(ideas) if ideas else _POTENTIAL_FALLBACK_SUGGESTION
+    return [
+        AiVisual(
+            user_id=user_id,
+            kind="potential",
+            variation_index=0,
+            name="Your Potential",
+            # Nothing to recommend among alternatives -- there's only one
+            # row, same posture as aging's fixed steps.
+            is_recommended=False,
+            attributes={"priority_features": priority_features},
+            explanation=suggestion,
+        )
+    ]
+
+
 def _build_variation_rows(
     user_id: uuid.UUID, kind: str, face_shape: str | None, dimorphism_label: str | None
 ) -> list[AiVisual]:
@@ -158,6 +222,8 @@ async def get_or_create_visuals(db: AsyncSession, user_id: uuid.UUID, kind: str)
 
     if kind == "aging":
         rows = _build_aging_rows(user_id)
+    elif kind == "potential":
+        rows = _build_potential_rows(user_id, analysis)
     else:
         assessments = analysis.facial_assessments or {}
         face_shape = (assessments.get("face_shape") or {}).get("label")
@@ -184,6 +250,16 @@ def _build_prompt(kind: str, row: AiVisual) -> str:
         return (
             f"Using this photo of a person's face and shoulders, generate a photorealistic shoulder-up "
             f"image showing them wearing this {subject} {IDENTITY_PRESERVATION_INSTRUCTION}"
+        )
+    if kind == "potential":
+        # Whole-face, not one specific feature -- row.explanation was
+        # composed in _build_potential_rows from the user's own Priority
+        # Features recommendations (or the generic fallback phrase).
+        return (
+            f"Using this photo of a person's whole face, generate a single photorealistic 'after' "
+            f"image illustrating these specific cosmetic suggestions applied together, naturally and "
+            f"subtly, as one cohesive improved appearance: {row.explanation} "
+            f"{IDENTITY_PRESERVATION_INSTRUCTION}"
         )
     subject = f"hairstyle: {row.name} -- {row.explanation}"
     return (

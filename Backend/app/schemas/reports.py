@@ -37,7 +37,13 @@ class FeatureScoreOut(BaseModel):
 
 
 class FeatureSectionOut(BaseModel):
-    narrative: str
+    # Named narrative sub-sections (e.g. hair's "Hair Style"/"Hair Loss"/
+    # "Hair Health") -- see ai_narrative_service.py's _FEATURE_SUBSECTIONS.
+    # Replaces a single `narrative: str` field (2026-09-17, matching the
+    # client reference report's own multi-sub-section depth per feature).
+    # Empty for a pre-this-change report or when nothing was confidently
+    # written -- never fabricated.
+    sections: dict[str, str] = {}
     summary_callout: str
     strengths: str
     areas_of_note: str

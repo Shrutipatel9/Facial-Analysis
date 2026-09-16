@@ -1532,24 +1532,6 @@ def _summary_callout_flowables(styles: dict[str, ParagraphStyle], feature: str, 
     return [Spacer(1, 4), _accent_card(cell, _CALLOUT_BG, 5.0 * inch)]
 
 
-# report_design_spec.md v3.0 §9.2's primary sub-heading per feature page,
-# replacing the prior round's uniform "Observations" heading -- reuses the
-# same existing narrative text under a feature-specific name, not new
-# content (see this file's module docstring on what this round did/didn't
-# restructure).
-_PRIMARY_SUBHEADING = {
-    "hair": "Hair Style",
-    "eyebrows": "Eyebrows",
-    "eyes": "Eyes",
-    "nose": "Nose",
-    "cheeks": "Cheek Structure",
-    "jaw": "Jaw Structure",
-    "lips": "Lips",
-    "chin": "Chin",
-    "skin": "Skincare Protocol",
-    "neck": "Neck",
-    "ears": "Ear Structure",
-}
 # Features whose §9.2 sub-section list includes a second, styling/lifestyle-
 # guidance-flavored sub-section beyond the primary one -- Jaw's "Further
 # Enhancement" and Skin's "Further Skin Enhancement". Reuses the same
@@ -1611,16 +1593,19 @@ class _HairLossScale(Flowable):
 
 def _hair_loss_flowables(styles: dict[str, ParagraphStyle], sections: dict[str, Any]) -> list[Any]:
     """report_design_spec.md v3.0 §13.3 / report_template.md §10 -- the
-    Hair page's "Hair Loss" sub-section, AI-estimated alongside the rest
-    of the narrative (ai_narrative_service.py). Omitted entirely (not a
-    placeholder stage) when the model couldn't assess it from the photos --
-    never a guessed/default stage shown just to fill the section."""
+    illustrated stage scale that sits inside the Hair page's own "Hair
+    Loss" narrative sub-section (rendered by the sections loop in
+    _feature_flowables, which already provides the "Hair Loss" heading
+    and its prose -- no second heading here, just the stage caption +
+    scale that go right after it). Omitted entirely (not a placeholder
+    stage) when the model couldn't assess it from the photos -- never a
+    guessed/default stage shown just to fill the section."""
     hair_loss = sections.get("hair_loss")
     if not hair_loss:
         return []
     stage, label = hair_loss.get("stage"), hair_loss.get("label", "")
     return [
-        Paragraph("Hair Loss", styles["h2"]),
+        Spacer(1, 3),
         Paragraph(f"Stage {stage} of 7 — {label}", styles["body"]),
         _HairLossScale(stage),
         Spacer(1, 3),
@@ -1694,11 +1679,23 @@ def _feature_flowables(
     flowables.extend(_measurement_flowables(styles, data.get("measurement") or {}))
     flowables.extend(_attributes_flowables(styles, data.get("attributes") or {}))
 
-    flowables.append(Paragraph(_PRIMARY_SUBHEADING[feature], styles["h2"]))
-    flowables.append(Paragraph(data.get("narrative", "") or "No observations recorded.", styles["body"]))
-
-    if feature == "hair":
-        flowables.extend(_hair_loss_flowables(styles, sections or {}))
+    # Named narrative sub-sections (e.g. hair's "Hair Style"/"Hair Loss"/
+    # "Hair Health") -- see ai_narrative_service.py's _FEATURE_SUBSECTIONS.
+    # Already in canonical heading order from _sanitize_sections; this loop
+    # never re-sorts. Hair's illustrated stage scale is interleaved right
+    # after its own "Hair Loss" heading's paragraph (matching the reference
+    # report's own layout: prose, then the scale, then the next heading),
+    # not appended after every section.
+    feature_sections = data.get("sections") or {}
+    if feature_sections:
+        for heading, content in feature_sections.items():
+            flowables.append(Paragraph(heading, styles["h2"]))
+            flowables.append(Paragraph(content, styles["body"]))
+            if feature == "hair" and heading == "Hair Loss":
+                flowables.extend(_hair_loss_flowables(styles, sections or {}))
+    else:
+        flowables.append(Paragraph("Observations", styles["h2"]))
+        flowables.append(Paragraph("No observations recorded.", styles["body"]))
 
     flowables.append(Paragraph("Strengths", styles["h2"]))
     flowables.append(Paragraph(data.get("strengths", "") or "None noted.", styles["body"]))

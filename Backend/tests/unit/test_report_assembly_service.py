@@ -1,3 +1,4 @@
+from app.services.ai_narrative_service import _FEATURE_SUBSECTIONS
 from app.services.facial_assessment_service import ASSESSMENT_CATEGORIES
 from app.services.facial_measurement_service import ANALYSIS_FEATURES
 from app.services.report_assembly_service import (
@@ -117,7 +118,7 @@ def _narrative_result() -> dict:
     return {
         "features": {
             feature: {
-                "narrative": f"Narrative for {feature}.",
+                "sections": {heading: f"{heading} for {feature}." for heading in _FEATURE_SUBSECTIONS[feature]},
                 "summary_callout": feature,
                 "strengths": f"Strength for {feature}.",
                 "areas_of_note": f"Note for {feature}.",
@@ -134,11 +135,12 @@ class TestAssembleSections:
         sections = assemble_sections(_measurements(), _narrative_result())
         assert set(sections["features"].keys()) == set(ANALYSIS_FEATURES)
 
-    def test_each_feature_has_narrative_callout_and_potential(self):
+    def test_each_feature_has_sections_callout_and_potential(self):
         sections = assemble_sections(_measurements(), _narrative_result())
         for feature in ANALYSIS_FEATURES:
             entry = sections["features"][feature]
-            assert entry["narrative"] == f"Narrative for {feature}."
+            expected_sections = {heading: f"{heading} for {feature}." for heading in _FEATURE_SUBSECTIONS[feature]}
+            assert entry["sections"] == expected_sections
             assert entry["summary_callout"] == feature
             assert entry["strengths"] == f"Strength for {feature}."
             assert entry["areas_of_note"] == f"Note for {feature}."
@@ -194,7 +196,7 @@ class TestTeaserFallback:
         sections = assemble_sections(_measurements(), {})
         for feature in ANALYSIS_FEATURES:
             entry = sections["features"][feature]
-            assert entry["narrative"] == ""
+            assert entry["sections"] == {}
             assert entry["summary_callout"] == "Measurement captured."
 
     def test_unavailable_measurement_gets_a_different_templated_callout(self):
@@ -213,23 +215,30 @@ class TestTeaserFallback:
 class TestClassifyRecommendations:
     def test_otc_keyword_classified_as_otc(self):
         features = {"skin": {"recommendation_ideas": ["Try a vitamin C serum daily."]}}
-        tiers = classify_recommendations(features, "")
+        tiers = classify_recommendations(features)
         assert "Try a vitamin C serum daily." in tiers["otc_skincare"]
 
     def test_clinic_keyword_classified_as_in_clinic(self):
         features = {"jaw": {"recommendation_ideas": ["Consider seeing a dermatologist about jawline contouring."]}}
-        tiers = classify_recommendations(features, "")
+        tiers = classify_recommendations(features)
         assert "Consider seeing a dermatologist about jawline contouring." in tiers["in_clinic"]
 
     def test_generic_advice_defaults_to_at_home(self):
         features = {"skin": {"recommendation_ideas": ["Stay hydrated and get enough sleep."]}}
-        tiers = classify_recommendations(features, "")
+        tiers = classify_recommendations(features)
         assert "Stay hydrated and get enough sleep." in tiers["at_home"]
 
-    def test_closing_recommendations_text_is_also_classified(self):
-        tiers = classify_recommendations({}, "Use a daily sunscreen. Consider seeing a dermatologist for the jawline.")
-        assert any("sunscreen" in item for item in tiers["otc_skincare"])
-        assert any("dermatologist" in item for item in tiers["in_clinic"])
+    def test_only_recommendation_ideas_are_classified_not_narrative_prose(self):
+        """2026-09-17 regression test: Treatment Protocol phases were
+        getting padded with long sentence fragments split out of the
+        closing-recommendations narrative synthesis (descriptive prose,
+        not discrete suggestions) -- only each feature's own
+        recommendation_ideas should ever appear in a tier."""
+        features = {"skin": {"recommendation_ideas": ["Use a daily sunscreen."]}}
+        tiers = classify_recommendations(features)
+        assert tiers["otc_skincare"] == ["Use a daily sunscreen."]
+        assert tiers["in_clinic"] == []
+        assert tiers["at_home"] == []
 
 
 class TestFeatureRecommendationTier:

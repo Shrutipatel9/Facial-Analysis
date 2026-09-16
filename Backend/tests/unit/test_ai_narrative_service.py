@@ -1,17 +1,19 @@
 import json
 
+from app.exceptions import AIProviderError
 from app.services.ai_narrative_service import (
     _FEATURE_ATTRIBUTE_KEYS,
+    _FEATURE_SUBSECTIONS,
     _SYSTEM_PROMPT,
     _parse_facial_age,
     _parse_hair_loss,
     _parse_response,
     _sanitize_attributes,
+    _sanitize_sections,
     format_questionnaire_context,
 )
 from app.services.facial_measurement_service import ANALYSIS_FEATURES
 from app.services.questionnaire_service import QUESTIONS_BY_ID
-from app.exceptions import AIProviderError
 
 
 class TestFormatQuestionnaireContext:
@@ -82,6 +84,17 @@ class TestSystemPrompt:
         assert "never guess a value just to fill every key" in _SYSTEM_PROMPT
         assert "never a key not in that feature's own vocabulary list" in _SYSTEM_PROMPT
 
+    def test_includes_every_feature_subsection_vocabulary(self):
+        for feature, headings in _FEATURE_SUBSECTIONS.items():
+            assert feature in _SYSTEM_PROMPT
+            for heading in headings:
+                assert heading in _SYSTEM_PROMPT, f"{feature}: {heading}"
+
+    def test_requires_sections_not_a_single_narrative(self):
+        assert '"sections"' in _SYSTEM_PROMPT
+        assert '"narrative"' not in _SYSTEM_PROMPT
+        assert "4-7 sentences" in _SYSTEM_PROMPT
+
 
 class TestSanitizeAttributes:
     def test_keeps_only_allowed_keys_with_string_values(self):
@@ -99,10 +112,36 @@ class TestSanitizeAttributes:
         assert _sanitize_attributes("not_a_feature", {"hairline": "Full"}) == {}
 
 
+class TestSanitizeSections:
+    def test_keeps_only_allowed_headings_with_string_values(self):
+        raw = {"Hair Style": "Good hair.", "Hair Loss": "Minimal.", "Not A Real Heading": "x", "Hair Health": 5}
+        assert _sanitize_sections("hair", raw) == {"Hair Style": "Good hair.", "Hair Loss": "Minimal."}
+
+    def test_non_dict_input_returns_empty(self):
+        assert _sanitize_sections("hair", None) == {}
+        assert _sanitize_sections("hair", "Full hairline") == {}
+
+    def test_empty_string_value_is_dropped(self):
+        assert _sanitize_sections("hair", {"Hair Style": ""}) == {}
+
+    def test_unknown_feature_yields_no_allowed_headings(self):
+        assert _sanitize_sections("not_a_feature", {"Hair Style": "text"}) == {}
+
+    def test_result_is_always_in_canonical_vocabulary_order_regardless_of_input_order(self):
+        raw = {"Hair Health": "c", "Hair Loss": "b", "Hair Style": "a"}
+        result = _sanitize_sections("hair", raw)
+        assert list(result.keys()) == ["Hair Style", "Hair Loss", "Hair Health"]
+
+    def test_single_section_feature_only_allows_its_one_heading(self):
+        assert _sanitize_sections("nose", {"Nose": "Balanced.", "Cheek Structure": "wrong feature"}) == {
+            "Nose": "Balanced."
+        }
+
+
 def _minimal_features() -> dict:
     return {
         feature: {
-            "narrative": "n",
+            "sections": {heading: f"{heading} text." for heading in _FEATURE_SUBSECTIONS[feature]},
             "summary_callout": "s",
             "strengths": "st",
             "areas_of_note": "a",
@@ -174,6 +213,26 @@ class TestParseResponse:
         for feature in ANALYSIS_FEATURES:
             assert result.features[feature]["attributes"] == {}
 
+    def test_sections_are_sanitized_per_feature_in_the_full_response(self):
+        features = _minimal_features()
+        features["hair"]["sections"] = {
+            "Hair Style": "Full hairline.",
+            "Made Up Heading": "x",
+            "Hair Loss": "",
+        }
+        raw = json.dumps({"features": features, "closing_recommendations": "c"})
+        result = _parse_response(raw)
+        assert result.features["hair"]["sections"] == {"Hair Style": "Full hairline."}
+
+    def test_missing_sections_key_becomes_empty_dict(self):
+        features = _minimal_features()
+        for feature in ANALYSIS_FEATURES:
+            del features[feature]["sections"]
+        raw = json.dumps({"features": features, "closing_recommendations": "c"})
+        result = _parse_response(raw)
+        for feature in ANALYSIS_FEATURES:
+            assert result.features[feature]["sections"] == {}
+
     def test_facial_age_and_hair_loss_are_parsed_when_present(self):
         raw = json.dumps(
             {
@@ -189,7 +248,11 @@ class TestParseResponse:
 
     def test_malformed_facial_age_does_not_fail_the_whole_response(self):
         raw = json.dumps(
-            {"features": _minimal_features(), "closing_recommendations": "c", "facial_age": {"estimate": "not a number"}}
+            {
+                "features": _minimal_features(),
+                "closing_recommendations": "c",
+                "facial_age": {"estimate": "not a number"},
+            }
         )
         result = _parse_response(raw)
         assert result.facial_age is None

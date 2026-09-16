@@ -40,6 +40,21 @@ logger = logging.getLogger(__name__)
 _DEFAULT_PROMPT_SUGGESTION = "a subtle, natural cosmetic refinement to this area"
 
 
+def _select_source_image(
+    feature: str, persisted_crops: dict[str, bytes], crops: dict[str, bytes | None]
+) -> bytes | None:
+    """A feature-specific crop only -- persisted (already-generated and
+    stored `ReportFeatureImage` bytes) takes priority over a freshly
+    extracted one, and neither ever falls back to the full, uncropped
+    front photo (2026-09-17, user-reported: an "eyes" visual came back
+    showing the nose instead, because that fallback sent the whole face
+    as the source image while the prompt still named one specific
+    feature). Returns None when no crop exists for this feature at all --
+    `_generate_one_feature_visual` turns that into a clean "failed" row,
+    which is the correct outcome, not a mismatched image."""
+    return persisted_crops.get(feature) or crops.get(feature)
+
+
 def _build_prompt(feature: str, narrative_result: dict) -> str:
     feature_label = feature.replace("_", " ").title()
     feature_entry = (narrative_result or {}).get("features", {}).get(feature, {})
@@ -86,7 +101,7 @@ async def generate_all_feature_visuals(report_id: uuid.UUID) -> None:
             _generate_one_feature_visual(
                 report_id,
                 feature,
-                source_image=persisted_crops.get(feature) or crops.get(feature) or front_bytes,
+                source_image=_select_source_image(feature, persisted_crops, crops),
                 prompt=_build_prompt(feature, narrative_result),
                 semaphore=semaphore,
                 max_retries=settings.image_gen_max_retries,

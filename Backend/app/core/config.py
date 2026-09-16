@@ -74,35 +74,51 @@ class Settings(BaseSettings):
     s3_endpoint_url: str | None = Field(default=None, alias="S3_ENDPOINT_URL")
 
     # --- AI narrative generation (FR-007, FR-008) ---
-    # NFR-008 (client-stated) names OpenAI; the delivery team is building
-    # against DeepSeek instead (delivery-team decision, ASM-006 --
-    # client_requirements.md v1.8, flagged for client awareness, not silent).
-    # DeepSeek's hosted API is OpenAI-Chat-Completions-compatible, so this is
-    # a config-level swap (base_url/api_key/model), not a new client
-    # implementation -- switching to real OpenAI later needs no code change.
+    # NFR-008 (client-stated) names OpenAI -- this ran on DeepSeek for a
+    # while instead (delivery-team decision, ASM-006), since DeepSeek's
+    # hosted API happens to be OpenAI-Chat-Completions-compatible, making
+    # that a config-level swap (base_url/api_key/model), not a new client
+    # implementation. 2026-09-16: switched back to real OpenAI (client
+    # supplied a key) by changing these defaults -- still no code change,
+    # exactly as ai_narrative_service.py's module docstring anticipated.
     # ai_api_key is intentionally optional here (not validated at startup
     # like jwt_secret/otp_pepper) -- most local dev/testing never exercises
     # this module at all; app/services/ai_narrative_service.py raises a
     # clear error the first time a call is actually attempted without one.
-    ai_provider: str = Field(default="deepseek", alias="AI_PROVIDER")
+    ai_provider: str = Field(default="openai", alias="AI_PROVIDER")
     ai_api_key: str | None = Field(default=None, alias="AI_API_KEY")
-    ai_base_url: str = Field(default="https://api.deepseek.com", alias="AI_BASE_URL")
-    ai_model: str = Field(default="deepseek-v4-flash-vision-exp", alias="AI_MODEL")
-    ai_request_timeout_seconds: int = Field(default=120, alias="AI_REQUEST_TIMEOUT_SECONDS")
+    ai_base_url: str = Field(default="https://api.openai.com/v1", alias="AI_BASE_URL")
+    ai_model: str = Field(default="gpt-4o", alias="AI_MODEL")
+    # 120 -> 180 (2026-09-17): the expanded per-feature `sections` content
+    # (ai_narrative_service.py's _FEATURE_SUBSECTIONS) meaningfully grew the
+    # response size the model has to generate -- more output tokens takes
+    # proportionally longer, so the old 120s budget cuts it closer than
+    # before.
+    ai_request_timeout_seconds: int = Field(default=180, alias="AI_REQUEST_TIMEOUT_SECONDS")
 
     # --- AI image generation (FR-022, Milestone 2) ---
-    # ASM-011: vendor is Google Gemini 2.5 Flash Image, user-confirmed
-    # 2026-09-11. Unlike ai_* above, Gemini's image-generation call shape
-    # isn't OpenAI-Chat-Completions-compatible, so this can't reuse that
-    # trick -- app/services/image_generation_service.py has a real
-    # ImageGenerationClient ABC instead, with `image_gen_provider` as its
-    # vendor switch for a future swap. image_gen_api_key is intentionally
-    # optional here, same posture as ai_api_key -- most local dev/testing
-    # never exercises this module; image_generation_service.py raises a
-    # clear error the first time a call is actually attempted without one.
-    image_gen_provider: str = Field(default="gemini", alias="IMAGE_GEN_PROVIDER")
+    # ASM-011: vendor was Google Gemini 2.5 Flash Image, user-confirmed
+    # 2026-09-11 -- blocked all along by a zero-quota free-tier key (see
+    # project memory: "Gemini image-gen quota is currently 0"). Switched to
+    # OpenAI (gpt-image-1) 2026-09-16 once a billed OpenAI key was
+    # supplied, same day as the ai_* narrative switch above. Gemini's call
+    # shape isn't OpenAI-Chat-Completions-compatible, so unlike ai_* this
+    # needed a real second ImageGenerationClient implementation, not just a
+    # base_url swap -- see image_generation_service.py's
+    # OpenAIImageGenerationClient, `image_gen_provider` is the vendor
+    # switch between the two. image_gen_api_key is intentionally optional
+    # here, same posture as ai_api_key -- most local dev/testing never
+    # exercises this module; image_generation_service.py raises a clear
+    # error the first time a call is actually attempted without one.
+    # IMAGE_GEN_API_KEY left unset in .env now falls back to AI_API_KEY
+    # (see _default_image_gen_api_key below) -- both providers are OpenAI
+    # as of 2026-09-16/17, so the same key genuinely is the same credential,
+    # not two coincidentally-equal secrets that would drift if rotated
+    # separately. Set IMAGE_GEN_API_KEY explicitly only if image generation
+    # should ever use a different key/vendor than narrative generation.
+    image_gen_provider: str = Field(default="openai", alias="IMAGE_GEN_PROVIDER")
     image_gen_api_key: str | None = Field(default=None, alias="IMAGE_GEN_API_KEY")
-    image_gen_model: str = Field(default="gemini-2.5-flash-image", alias="IMAGE_GEN_MODEL")
+    image_gen_model: str = Field(default="gpt-image-1", alias="IMAGE_GEN_MODEL")
     image_gen_request_timeout_seconds: int = Field(default=60, alias="IMAGE_GEN_REQUEST_TIMEOUT_SECONDS")
     # BR-006 cost control: retries only cover transient failures (timeout/
     # rate-limited), never a content-policy refusal -- see
@@ -174,6 +190,18 @@ class Settings(BaseSettings):
             ]
             if missing:
                 raise ValueError(f"PHOTO_STORAGE_PROVIDER=s3 requires {', '.join(missing)} to be set.")
+        return self
+
+    @model_validator(mode="after")
+    def _default_image_gen_api_key(self) -> "Settings":
+        """IMAGE_GEN_API_KEY falls back to AI_API_KEY when left unset --
+        2026-09-17, user-reported: both env vars held the exact same OpenAI
+        key value, which is real duplication now that both providers are
+        OpenAI, not two independent secrets. Only fills the gap (never
+        overrides an explicitly-set IMAGE_GEN_API_KEY), so image generation
+        can still point at a different key/vendor by setting it directly."""
+        if not self.image_gen_api_key and self.ai_api_key:
+            self.image_gen_api_key = self.ai_api_key
         return self
 
     @property

@@ -1,6 +1,6 @@
 import { authenticatedBlobRequest, authenticatedRequest } from "@/lib/api/apiClient"
 
-export type AiVisualKind = "hairstyle" | "outfit" | "aging"
+export type AiVisualKind = "hairstyle" | "outfit" | "aging" | "potential"
 
 export interface AiVisual {
   id: string

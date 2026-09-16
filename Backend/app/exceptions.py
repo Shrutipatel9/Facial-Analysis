@@ -192,7 +192,8 @@ class AnalysisNotFoundError(DomainError):
 
 
 class AIProviderError(DomainError):
-    """The configured AI provider (DeepSeek, per ASM-006) failed, timed
+    """The configured AI provider (OpenAI as of v1.27, ran on DeepSeek in
+    between -- see ASM-006) failed, timed
     out, or returned a response that couldn't be parsed into the expected
     shape. Raised inside analysis_service.run_analysis_pipeline's
     background task, never inside a request handler -- deliberately has no

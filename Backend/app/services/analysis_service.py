@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.background_tasks import schedule_background_task
+from app.core.config import get_settings
 from app.core.cv_executor import run_cv_task
 from app.db.session import async_session_factory
 from app.exceptions import (
@@ -42,7 +43,7 @@ from app.exceptions import (
 )
 from app.models.facial_analysis_result import FacialAnalysisResult
 from app.models.questionnaire_response import QuestionnaireResponse
-from app.services import payment_service, photo_service, questionnaire_service
+from app.services import ai_visual_service, payment_service, photo_service, questionnaire_service
 from app.services.ai_narrative_service import generate_narrative
 from app.services.facial_assessment_service import extract_measurements_and_assessments
 from app.services.facial_measurement_service import ANALYSIS_FEATURES
@@ -153,6 +154,10 @@ async def run_analysis_pipeline(analysis_id: uuid.UUID) -> None:
     templated fallback still gives the report something reasonable to show,
     and a manual re-invoke of this function is the practical retry path
     (see D:\\zzz\\payment\\plans.md's open items).
+
+    Once `status` reaches "completed", also auto-starts AI Visuals
+    generation for all 3 kinds (hairstyle/outfit/aging) in the background --
+    see the comment at that call site for why.
     """
     async with async_session_factory() as session:
         record = await session.get(FacialAnalysisResult, analysis_id)
@@ -199,6 +204,36 @@ async def run_analysis_pipeline(analysis_id: uuid.UUID) -> None:
         record.status = "completed"
         record.completed_at = datetime.now(UTC)
         await session.commit()
+
+        # 2026-09-17: auto-start AI Visuals (FR-020) generation for all 3
+        # kinds as soon as analysis completes, not lazily on the user's
+        # first /ai-visuals page visit -- a fresh visit was landing on a
+        # page that had only just triggered generation, showing pending/
+        # error states the user reported as "an error coming when I first
+        # visited the page". Reuses the exact same idempotent get_or_create
+        # (already trigger-once/BR-006-safe -- same call the page itself
+        # still makes on visit), so this is just an earlier first call, not
+        # new generation logic; by the time the user visits, generation is
+        # already in flight or done. Best-effort: a failure here must never
+        # fail the analysis pipeline itself, so each kind is isolated.
+        #
+        # Gated on image_gen_api_key actually being configured: with no key,
+        # get_or_create_visuals would still create AiVisual rows and spawn a
+        # background generate_all_visuals task per kind that's only *certain*
+        # to fail (each one discovers the missing key deeper inside, in
+        # _generate_one_visual) -- pure DB/task churn with no chance of a
+        # real image, for every single completed analysis. This is also
+        # exactly the test suite's own posture: AI_API_KEY/IMAGE_GEN_API_KEY
+        # are deliberately blank there (tests/conftest.py, BR-006 -- real
+        # provider calls must never run in automated tests), so this guard
+        # keeps this new auto-start a no-op in tests without any test-only
+        # branching -- the same key-presence check production relies on.
+        if get_settings().image_gen_api_key:
+            for kind in ai_visual_service.VALID_KINDS:
+                try:
+                    await ai_visual_service.get_or_create_visuals(session, record.user_id, kind)
+                except Exception:  # noqa: BLE001 -- broad on purpose, see comment above
+                    logger.exception("Failed to auto-start AI visuals (%s) for %s", kind, record.user_id)
 
 
 async def _load_photo_bytes(db: AsyncSession, user_id: uuid.UUID) -> dict[str, bytes]:

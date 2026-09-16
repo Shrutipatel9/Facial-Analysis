@@ -7,7 +7,14 @@ export interface ReportMeasurement {
 }
 
 export interface ReportFeatureSection {
-  narrative: string
+  // Named narrative sub-sections (e.g. hair's "Hair Style"/"Hair Loss"/
+  // "Hair Health") -- see Backend/app/services/ai_narrative_service.py's
+  // _FEATURE_SUBSECTIONS. Replaces a single `narrative: string` field
+  // (matching the client reference report's own multi-sub-section depth
+  // per feature). Empty for a pre-this-change report or when nothing was
+  // confidently written -- never fabricated. Iterate with
+  // Object.entries(...) -- already in the correct display order.
+  sections: Record<string, string>
   summary_callout: string
   strengths: string
   areas_of_note: string

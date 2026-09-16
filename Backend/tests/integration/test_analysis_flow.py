@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.payment import Payment
+from app.services.ai_narrative_service import _FEATURE_SUBSECTIONS
 from app.services.analysis_service import run_analysis_pipeline
 from app.services.facial_measurement_service import ANALYSIS_FEATURES
 from app.services.photo_validation_service import REQUIRED_ANGLES
@@ -84,7 +85,7 @@ def _fake_completion_response() -> SimpleNamespace:
         {
             "features": {
                 feature: {
-                    "narrative": f"Narrative for {feature}.",
+                    "sections": {heading: f"{heading} for {feature}." for heading in _FEATURE_SUBSECTIONS[feature]},
                     "summary_callout": feature,
                     "recommendation_ideas": ["idea one"],
                 }
@@ -414,6 +415,72 @@ class TestAnalysisPipeline:
         # missing (see D:\zzz\payment\plans.md's open items).
         assert body["status"] == "completed"
         assert body["narrative_result"] is None
+
+    async def test_completion_auto_starts_ai_visuals_when_image_gen_is_configured(
+        self, client: AsyncClient, email_sender, ai_recorder: _Recorder, db: AsyncSession, monkeypatch
+    ):
+        """2026-09-17, user-reported: AI Visuals used to only ever start
+        generating on the user's first /ai-visuals page visit, which could
+        show a fresh error/pending state right when they landed on it.
+        Analysis completion now auto-starts all 3 kinds itself -- gated on
+        image_gen_api_key being configured (see analysis_service.py's
+        comment) since tests deliberately leave it blank (BR-006)."""
+        from app.core.config import get_settings
+
+        monkeypatch.setenv("IMAGE_GEN_API_KEY", "test-key-for-this-assertion-only")
+        get_settings.cache_clear()
+
+        calls: list[tuple[uuid.UUID, str]] = []
+
+        async def _fake_get_or_create_visuals(db_arg, user_id, kind):  # noqa: ARG001 -- db unused, matches real signature
+            calls.append((user_id, kind))
+            return []
+
+        monkeypatch.setattr(
+            "app.services.ai_visual_service.get_or_create_visuals",
+            _fake_get_or_create_visuals,
+        )
+
+        try:
+            headers, user_id = await _auth_headers_and_user_id(client, email_sender, "an-visuals-autostart@example.com")
+            await _complete_questionnaire(client, headers)
+            await _complete_photos(client, headers)
+            await _mark_paid(db, user_id)
+            trigger = await client.post("/analysis", headers=headers)
+            await run_analysis_pipeline(uuid.UUID(trigger.json()["id"]))
+        finally:
+            get_settings.cache_clear()
+
+        assert {kind for _, kind in calls} == {"hairstyle", "outfit", "aging", "potential"}
+        assert all(called_user_id == user_id for called_user_id, _ in calls)
+
+    async def test_completion_does_not_auto_start_ai_visuals_without_a_configured_key(
+        self, client: AsyncClient, email_sender, ai_recorder: _Recorder, db: AsyncSession, monkeypatch
+    ):
+        """Companion to the auto-start test above: with no image-gen key
+        configured (this project's normal test posture, and a legitimate
+        ops state in production), completion must not create AiVisual rows
+        or schedule generation for every analysis -- see the key-presence
+        guard's own comment in analysis_service.py for why."""
+        calls: list[tuple[uuid.UUID, str]] = []
+
+        async def _fake_get_or_create_visuals(db_arg, user_id, kind):  # noqa: ARG001
+            calls.append((user_id, kind))
+            return []
+
+        monkeypatch.setattr(
+            "app.services.ai_visual_service.get_or_create_visuals",
+            _fake_get_or_create_visuals,
+        )
+
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "an-visuals-no-key@example.com")
+        await _complete_questionnaire(client, headers)
+        await _complete_photos(client, headers)
+        await _mark_paid(db, user_id)
+        trigger = await client.post("/analysis", headers=headers)
+        await run_analysis_pipeline(uuid.UUID(trigger.json()["id"]))
+
+        assert calls == []
 
 
 class TestAnalysisStatus:

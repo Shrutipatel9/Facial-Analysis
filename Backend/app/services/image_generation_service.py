@@ -2,33 +2,39 @@
 crop plus a text prompt into an AI-generated "after" image for the report's
 before/after visualization.
 
-ASM-011: vendor is Google Gemini 2.5 Flash Image, user-confirmed
-2026-09-11 (see docs/client_requirements.md). Unlike
-app/services/ai_narrative_service.py's DeepSeek integration, this is NOT a
-config-only swap -- DeepSeek happens to expose an OpenAI-Chat-Completions-
-shaped API, so that module could just point the existing `openai` SDK at a
-different base_url. Gemini's image-generation call shape (`contents=[...]`,
-`response_modalities=["IMAGE"]`, inline-data image parts in the response)
-has no such compatibility with anything already in this codebase, so there
-is nothing to "point a base_url at" -- a real ImageGenerationClient ABC
-exists here instead, mirroring PhotoStorage's precedent (a genuine
-interface, not a config trick), so a future vendor swap has a real seam.
+ASM-011: vendor was Google Gemini 2.5 Flash Image, user-confirmed
+2026-09-11 (see docs/client_requirements.md) -- blocked all along by a
+zero-quota free-tier key. Switched to OpenAI (gpt-image-1) 2026-09-16 once
+a billed OpenAI key was supplied (see OpenAIImageGenerationClient below).
+Unlike app/services/ai_narrative_service.py's provider swap, neither of
+these is a config-only change -- DeepSeek/OpenAI happen to share an
+OpenAI-Chat-Completions-shaped API, so that module can just point the
+`openai` SDK at a different base_url, but Gemini's image-generation call
+shape (`contents=[...]`, `response_modalities=["IMAGE"]`, inline-data image
+parts in the response) and OpenAI's `images.edit` call shape are each
+genuinely different from one another -- a real ImageGenerationClient ABC
+exists here instead, mirroring PhotoStorage's precedent (a real interface,
+not a config trick), so this second implementation is exactly the vendor
+swap that seam was built for.
 
 Cost control (BR-006): retries only cover transient failures (timeout,
 rate-limited) with backoff, via generate_with_retry() below. A permanent
-refusal (Gemini's safety/content-policy finish reasons) is never retried --
-retrying a permanent refusal is exactly the kind of uncontrolled repeat
-spend BR-006 warns about. Real Gemini calls never run in automated tests --
-see tests/unit/test_image_generation_service.py, which mocks the
-google.genai client boundary exclusively.
+refusal (safety/content-policy) is never retried -- retrying a permanent
+refusal is exactly the kind of uncontrolled repeat spend BR-006 warns
+about. Real provider calls never run in automated tests -- see
+tests/unit/test_image_generation_service.py, which mocks each client's SDK
+boundary exclusively (google.genai for Gemini, openai for OpenAI).
 """
 
 import asyncio
+import base64
+import io
 from abc import ABC, abstractmethod
 from functools import lru_cache
 
 from google.genai import types
 from google.genai.errors import APIError
+from openai import APITimeoutError, AsyncOpenAI, BadRequestError, OpenAIError, PermissionDeniedError, RateLimitError
 
 from app.core.config import get_settings
 
@@ -163,11 +169,75 @@ def _extract_inline_image(response: "types.GenerateContentResponse") -> bytes | 
     return None
 
 
+class OpenAIImageGenerationClient(ImageGenerationClient):
+    """gpt-image-1 via OpenAI's `images.edit` endpoint -- an image-to-image
+    edit call (source photo + text prompt), not `images.generate` (text-
+    only, no source image input), since a before/after visualization has
+    to actually start from the subject's own photo. gpt-image-1 always
+    returns base64-encoded image bytes (no `url` response option, unlike
+    dall-e-2/3), so this reads `b64_json` directly rather than needing to
+    fetch a URL afterward."""
+
+    def __init__(self) -> None:
+        settings = get_settings()
+        if not settings.image_gen_api_key:
+            raise ImageGenerationError(
+                "IMAGE_GEN_API_KEY is not configured -- add a real key to Backend/.env before "
+                "triggering visual generation.",
+                reason="unknown",
+                retryable=False,
+            )
+        self._client = AsyncOpenAI(
+            api_key=settings.image_gen_api_key, timeout=settings.image_gen_request_timeout_seconds
+        )
+        self._model = settings.image_gen_model
+
+    async def generate_before_after(self, *, source_image: bytes, prompt: str) -> bytes:
+        try:
+            response = await self._client.images.edit(
+                model=self._model,
+                image=("source.jpg", io.BytesIO(source_image), "image/jpeg"),
+                prompt=prompt,
+                # gpt-image-1-specific knobs (ignored/rejected by dall-e-2/3,
+                # not that this codebase configures those): "high" input
+                # fidelity keeps the edit closely anchored to the source
+                # photo's identity/lighting/background, the same guarantee
+                # IDENTITY_PRESERVATION_INSTRUCTION asks for in the prompt
+                # itself -- belt and suspenders, not either/or.
+                input_fidelity="high",
+                quality="high",
+                size="auto",
+            )
+        except OpenAIError as exc:
+            reason, retryable = _classify_openai_error(exc)
+            raise ImageGenerationError(str(exc), reason=reason, retryable=retryable) from exc
+
+        if not response.data or not response.data[0].b64_json:
+            raise ImageGenerationError(
+                "OpenAI returned no image (content-policy refusal or empty result).",
+                reason="content_policy_refusal",
+                retryable=False,
+            )
+        return base64.b64decode(response.data[0].b64_json)
+
+
+def _classify_openai_error(exc: OpenAIError) -> tuple[str, bool]:
+    if isinstance(exc, RateLimitError):
+        return "rate_limited", True
+    if isinstance(exc, APITimeoutError):
+        return "timeout", True
+    if isinstance(exc, BadRequestError | PermissionDeniedError):
+        return "content_policy_refusal", False
+    return "unknown", False
+
+
 @lru_cache
 def get_image_generation_client() -> ImageGenerationClient:
     settings = get_settings()
     if settings.image_gen_provider == "gemini":
         return GeminiImageGenerationClient()
+    if settings.image_gen_provider == "openai":
+        return OpenAIImageGenerationClient()
     raise ValueError(f"Unsupported IMAGE_GEN_PROVIDER: {settings.image_gen_provider!r}")
 
 

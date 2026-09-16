@@ -6,7 +6,7 @@ from pydantic import BaseModel
 # Same "plain Literal, not an Enum class" convention as schemas/photo.py's
 # CaptureMethod/ValidationStatus -- FastAPI validates a Literal path param
 # automatically (422 on an unknown value) with no extra Enum boilerplate.
-AiVisualKind = Literal["hairstyle", "outfit", "aging"]
+AiVisualKind = Literal["hairstyle", "outfit", "aging", "potential"]
 
 
 class AiVisualOut(BaseModel):
