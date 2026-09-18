@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react"
 
+import { ProtocolItemRow } from "@/components/report/ui/ProtocolItemRow"
 import { meridian } from "@/lib/report/meridianTokens"
 import type { ReportFullContent } from "@/lib/reports/reportApi"
 
@@ -48,12 +49,9 @@ export function ProtocolSection({ full }: { full: ReportFullContent }) {
                 <h3 className="text-xs font-semibold tracking-[0.08em] uppercase" style={{ color: meridian.accent.secondary }}>
                   {tier.label}
                 </h3>
-                <ul className="space-y-1.5 text-sm" style={{ color: meridian.ink.muted }}>
-                  {items.map((item) => (
-                    <li key={item} className="flex gap-2">
-                      <span style={{ color: meridian.accent.primary }}>•</span>
-                      <span>{item}</span>
-                    </li>
+                <ul className="space-y-3">
+                  {items.map((item, index) => (
+                    <ProtocolItemRow key={`${item.text}-${index}`} item={item} />
                   ))}
                 </ul>
               </div>

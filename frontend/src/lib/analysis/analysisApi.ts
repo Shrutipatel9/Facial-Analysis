@@ -1,4 +1,5 @@
 import { authenticatedRequest } from "@/lib/api/apiClient"
+import type { RecommendationItem } from "@/lib/reports/reportApi"
 
 export type AnalysisStatus = "none" | "processing" | "completed" | "failed"
 
@@ -10,7 +11,7 @@ export interface AnalysisStatusResponse {
 export interface AnalysisFeatureResult {
   narrative: string
   summary_callout: string
-  recommendation_ideas: string[]
+  recommendation_ideas: RecommendationItem[]
 }
 
 export interface NarrativeResult {

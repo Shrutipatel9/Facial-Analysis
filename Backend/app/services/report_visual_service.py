@@ -34,6 +34,7 @@ from app.services.image_generation_service import (
     get_image_generation_client,
 )
 from app.services.photo_storage import get_photo_storage
+from app.services.report_assembly_service import recommendation_text
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,8 @@ def _build_prompt(feature: str, narrative_result: dict) -> str:
     feature_label = feature.replace("_", " ").title()
     feature_entry = (narrative_result or {}).get("features", {}).get(feature, {})
     ideas = feature_entry.get("recommendation_ideas") or []
-    suggestion = ideas[0] if ideas else _DEFAULT_PROMPT_SUGGESTION
+    suggestion = recommendation_text(ideas[0]) if ideas else _DEFAULT_PROMPT_SUGGESTION
+    suggestion = suggestion or _DEFAULT_PROMPT_SUGGESTION
     return (
         f"Using this photo of a person's {feature_label.lower()}, generate a photorealistic "
         f"'after' image illustrating this specific cosmetic suggestion: {suggestion} "

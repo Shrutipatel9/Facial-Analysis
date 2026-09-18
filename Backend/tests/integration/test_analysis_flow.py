@@ -423,11 +423,11 @@ class TestAnalysisPipeline:
         generating on the user's first /ai-visuals page visit, which could
         show a fresh error/pending state right when they landed on it.
         Analysis completion now auto-starts all 3 kinds itself -- gated on
-        image_gen_api_key being configured (see analysis_service.py's
+        openai_api_key being configured (see analysis_service.py's
         comment) since tests deliberately leave it blank (BR-006)."""
         from app.core.config import get_settings
 
-        monkeypatch.setenv("IMAGE_GEN_API_KEY", "test-key-for-this-assertion-only")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key-for-this-assertion-only")
         get_settings.cache_clear()
 
         calls: list[tuple[uuid.UUID, str]] = []

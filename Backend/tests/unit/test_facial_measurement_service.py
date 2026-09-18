@@ -1,6 +1,12 @@
 from pathlib import Path
+from types import SimpleNamespace
 
-from app.services.facial_measurement_service import ANALYSIS_FEATURES, extract_measurements
+from app.services.facial_measurement_service import (
+    ANALYSIS_FEATURES,
+    _angle_degrees,
+    _tilt_degrees,
+    extract_measurements,
+)
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "photos"
 
@@ -79,3 +85,145 @@ class TestExtractMeasurements:
         assert ears.available is True
         assert "left_ear_to_nose_ratio" in ears.metrics
         assert "right_ear_to_nose_ratio" in ears.metrics  # fell back to front
+
+
+class TestPhase14FeatureScoresBackwardCompatibility:
+    """Phase 14 (Milestone 3, FR-023) regression guard -- every metric key
+    that existed before this phase (and that facial_assessment_service.py
+    reads by name) must still be present with the same meaning, additive
+    only."""
+
+    def test_fr018_metric_keys_are_unchanged_and_still_present(self):
+        results = extract_measurements({"front": _load("pass_all.jpg")})
+        expected_keys = {
+            "eyebrows": {"left_height_ratio", "right_height_ratio", "symmetry_delta"},
+            "eyes": {
+                "left_width_ratio",
+                "right_width_ratio",
+                "left_openness_ratio",
+                "right_openness_ratio",
+                "symmetry_delta",
+            },
+            "nose": {"width_ratio", "length_ratio", "width_to_length_ratio"},
+            "cheeks": {"width_to_face_ratio"},
+            "jaw": {"width_to_face_ratio"},
+            "lips": {"width_ratio", "fullness_ratio"},
+            "chin": {"projection_to_face_ratio"},
+        }
+        for feature, keys in expected_keys.items():
+            assert keys.issubset(results[feature].metrics.keys()), feature
+
+
+class TestPhase14NewMetrics:
+    def test_new_metrics_present_and_are_floats(self):
+        results = extract_measurements({"front": _load("pass_all.jpg")})
+        new_keys = {
+            "eyebrows": {
+                "left_tilt_deg",
+                "right_tilt_deg",
+                "interbrow_distance_ratio",
+                "left_length_ratio",
+                "right_length_ratio",
+            },
+            "eyes": {
+                "left_canthal_tilt_deg",
+                "right_canthal_tilt_deg",
+                "left_shape_ratio",
+                "right_shape_ratio",
+                "intercanthal_to_face_width_ratio",
+                "interpupillary_distance_ratio",
+            },
+            "nose": {"tip_position_ratio", "columella_deviation_ratio"},
+            "cheeks": {"cheek_to_jaw_ratio", "cheekbone_height_ratio", "symmetry_delta"},
+            "jaw": {
+                "jaw_to_cheek_ratio",
+                "left_jaw_contour_angle_deg",
+                "right_jaw_contour_angle_deg",
+                "length_ratio",
+                "flare_symmetry_delta",
+            },
+            "lips": {
+                "upper_lip_thickness_ratio",
+                "lower_lip_thickness_ratio",
+                "upper_to_lower_ratio",
+                "oral_commissure_tilt_deg",
+            },
+            "chin": {"width_ratio", "symmetry_delta"},
+        }
+        for feature, keys in new_keys.items():
+            metrics = results[feature].metrics
+            assert keys.issubset(metrics.keys()), feature
+            for key in keys:
+                assert isinstance(metrics[key], float), f"{feature}.{key}"
+
+    def test_angle_metrics_are_in_plausible_ranges(self):
+        """Regression guard for the two bugs caught during this phase's
+        planning: a mirrored-sign bug on tilt metrics (would show as a
+        value near +-90 instead of a small number) and a degenerate
+        near-collinear angle (would show as a value near 0 or 180)."""
+        results = extract_measurements({"front": _load("pass_all.jpg")})
+        eyebrows, eyes, jaw, lips = (
+            results[feature].metrics for feature in ("eyebrows", "eyes", "jaw", "lips")
+        )
+        for key in ("left_canthal_tilt_deg", "right_canthal_tilt_deg"):
+            assert -45 < eyes[key] < 45, key
+        for key in ("left_tilt_deg", "right_tilt_deg"):
+            assert -45 < eyebrows[key] < 45, key
+        assert -45 < lips["oral_commissure_tilt_deg"] < 45
+        for key in ("left_jaw_contour_angle_deg", "right_jaw_contour_angle_deg"):
+            assert 60 < jaw[key] < 170, key
+
+    def test_interpupillary_distance_is_wider_than_intercanthal_distance(self):
+        """Pupils always sit wider apart than the inner eye corners -- if
+        this doesn't hold, the iris-center landmark indices are wrong."""
+        eyes = extract_measurements({"front": _load("pass_all.jpg")})["eyes"].metrics
+        assert eyes["interpupillary_distance_ratio"] > eyes["intercanthal_to_face_width_ratio"]
+
+
+class TestTiltDegrees:
+    @staticmethod
+    def _landmarks(points: dict[int, tuple[float, float]]) -> list[SimpleNamespace]:
+        size = max(points) + 1
+        result = [SimpleNamespace(x=0.0, y=0.0) for _ in range(size)]
+        for index, (x, y) in points.items():
+            result[index] = SimpleNamespace(x=x, y=y)
+        return result
+
+    def test_level_pair_returns_near_zero(self):
+        landmarks = self._landmarks({0: (0.1, 0.5), 1: (0.2, 0.5)})
+        assert abs(_tilt_degrees(landmarks, 0, 1)) < 0.01
+
+    def test_mirrored_pairs_with_the_same_real_tilt_share_a_sign(self):
+        """The exact bug class caught during Phase 14 planning: 'outer'
+        sits on the smaller-x side of 'inner' for a left-side pair but the
+        larger-x side for a mirrored right-side pair. Both configurations
+        below represent the same real-world tilt (far point higher than
+        near) and must report the same sign."""
+        left_like = self._landmarks({0: (0.3, 0.5), 1: (0.2, 0.4)})  # far (1) is left of near, and higher
+        right_like = self._landmarks({0: (0.6, 0.5), 1: (0.7, 0.4)})  # far (1) is right of near, and higher
+        left_tilt = _tilt_degrees(left_like, 0, 1)
+        right_tilt = _tilt_degrees(right_like, 0, 1)
+        assert left_tilt > 0
+        assert right_tilt > 0
+
+
+class TestAngleDegrees:
+    @staticmethod
+    def _landmarks(points: dict[int, tuple[float, float]]) -> list[SimpleNamespace]:
+        size = max(points) + 1
+        result = [SimpleNamespace(x=0.0, y=0.0) for _ in range(size)]
+        for index, (x, y) in points.items():
+            result[index] = SimpleNamespace(x=x, y=y)
+        return result
+
+    def test_collinear_points_return_near_180(self):
+        landmarks = self._landmarks({0: (0.0, 0.0), 1: (0.5, 0.0), 2: (1.0, 0.0)})
+        assert abs(_angle_degrees(landmarks, 0, 1, 2) - 180.0) < 0.01
+
+    def test_right_angle_returns_near_90(self):
+        landmarks = self._landmarks({0: (1.0, 0.0), 1: (0.0, 0.0), 2: (0.0, 1.0)})
+        assert abs(_angle_degrees(landmarks, 0, 1, 2) - 90.0) < 0.01
+
+    def test_zero_length_vector_returns_zero_not_an_error(self):
+        landmarks = self._landmarks({0: (0.0, 0.0), 1: (0.0, 0.0), 2: (1.0, 1.0)})
+        assert _angle_degrees(landmarks, 0, 1, 2) == 0.0

@@ -162,7 +162,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def _email_delivery_failed(request: Request, exc: EmailDeliveryError) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            content=_error("EMAIL_DELIVERY_FAILED", "Could not send verification email. Please try again."),
+            content=_error("EMAIL_DELIVERY_FAILED", "Could not send email. Please try again."),
         )
 
     @app.exception_handler(ResetTokenInvalidError)

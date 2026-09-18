@@ -86,6 +86,17 @@ _JAW_LEFT, _JAW_RIGHT = 172, 397
 _CHEEK_LEFT, _CHEEK_RIGHT = 50, 280
 _FACE_LEFT, _FACE_RIGHT, _FACE_TOP = 234, 454, 10
 
+# Phase 14 (Milestone 3, FR-023) additions -- same "widely documented
+# reference points" posture as the block above. Iris centers (468/473) are
+# always present in this model's 478-point Tasks-API output (confirmed
+# empirically against this project's own fixtures -- no "refine landmarks"
+# config flag exists for this API, unlike the older mediapipe.solutions
+# face_mesh API).
+_LEFT_EYEBROW_INNER, _RIGHT_EYEBROW_INNER = 55, 285
+_LEFT_IRIS_CENTER, _RIGHT_IRIS_CENTER = 468, 473
+_LIP_UPPER_OUTER_TOP, _LIP_LOWER_OUTER_BOTTOM = 0, 17
+_CHIN_LEFT, _CHIN_RIGHT = 149, 378
+
 
 @dataclass(frozen=True)
 class MeasurementResult:
@@ -171,6 +182,42 @@ def _distance(landmarks: list[Any], i: int, j: int) -> float:
     return math.hypot(ax - bx, ay - by)
 
 
+def _tilt_degrees(landmarks: list[Any], near_index: int, far_index: int) -> float:
+    """Vertical tilt of the line from `near` to `far`, in degrees. Uses
+    abs(dx) as the run deliberately, not signed dx -- a signed-dx version
+    would flip sign between mirrored left/right pairs, since the "outer"
+    point sits on the smaller-x side of "inner" for the left eye/brow but
+    the larger-x side for the right one (verified empirically this phase:
+    a naive atan2(dy, dx) reported opposite-sign tilts for two sides with
+    the same real-world tilt). Positive = `far` is higher (smaller y) than
+    `near`; range is always (-90, 90) by construction."""
+    nx, ny = _point(landmarks, near_index)
+    fx, fy = _point(landmarks, far_index)
+    run = abs(fx - nx) or 1e-9
+    return math.degrees(math.atan2(-(fy - ny), run))
+
+
+def _angle_degrees(landmarks: list[Any], a_index: int, vertex_index: int, c_index: int) -> float:
+    """Interior angle (0-180 degrees) at `vertex`, between rays
+    vertex->a and vertex->c. For frontal-plane contour angles only (e.g.
+    the jaw's gonial-angle proxy) -- deliberately NOT used for a
+    nasolabial/nasofrontal angle, which degenerates to ~178-180 degrees
+    when computed from front-only (x, y) landmarks (verified empirically
+    this phase: those points sit close to the face's vertical midline in a
+    frontal projection, so the angle carries no real signal from this
+    photo angle alone)."""
+    vx, vy = _point(landmarks, vertex_index)
+    ax, ay = _point(landmarks, a_index)
+    cx, cy = _point(landmarks, c_index)
+    v1x, v1y = ax - vx, ay - vy
+    v2x, v2y = cx - vx, cy - vy
+    m1, m2 = math.hypot(v1x, v1y), math.hypot(v2x, v2y)
+    if m1 == 0 or m2 == 0:
+        return 0.0
+    cos_angle = max(-1.0, min(1.0, (v1x * v2x + v1y * v2y) / (m1 * m2)))
+    return math.degrees(math.acos(cos_angle))
+
+
 def extract_measurements(photos: dict[str, bytes]) -> dict[str, MeasurementResult]:
     """`photos` maps angle id -> raw image bytes (at minimum "front", which
     the 7 mesh-based features and Skin require; "left_3q"/"right_3q" if
@@ -207,10 +254,10 @@ def measurements_from_context(
 
     measurements: dict[str, MeasurementResult] = {
         "eyebrows": _measure_eyebrows(landmarks, scale),
-        "eyes": _measure_eyes(landmarks, scale),
+        "eyes": _measure_eyes(landmarks, scale, context.face_width),
         "nose": _measure_nose(landmarks, scale),
-        "cheeks": _measure_cheeks(landmarks, context.face_width),
-        "jaw": _measure_jaw(landmarks, context.face_width),
+        "cheeks": _measure_cheeks(landmarks, context.face_width, context.face_height),
+        "jaw": _measure_jaw(landmarks, context.face_width, scale),
         "lips": _measure_lips(landmarks, scale),
         "chin": _measure_chin(landmarks, context.face_height),
         "skin": _measure_skin(context.rgb_array, landmarks),
@@ -228,21 +275,51 @@ def measurements_from_context(
 def _measure_eyebrows(landmarks: list[Any], scale: float) -> MeasurementResult:
     left_height = _distance(landmarks, _LEFT_EYEBROW_MID, _LEFT_EYE_TOP) / scale
     right_height = _distance(landmarks, _RIGHT_EYEBROW_MID, _RIGHT_EYE_TOP) / scale
+    # Phase 14 (FR-023) additions. Length here is inner-to-outer brow span,
+    # an approximation of "Tail Length" -- only 3 points per brow exist in
+    # this module, not a full brow contour, so true tail curvature isn't
+    # derivable. Brow Shape/Thickness/Position/Lift, Start/End Point, and
+    # Tail Drop are deliberately not added -- they need finer brow-contour
+    # landmarks than the 3 points already extracted here.
+    left_tilt = _tilt_degrees(landmarks, _LEFT_EYEBROW_INNER, _LEFT_EYEBROW_OUTER)
+    right_tilt = _tilt_degrees(landmarks, _RIGHT_EYEBROW_INNER, _RIGHT_EYEBROW_OUTER)
+    interbrow = _distance(landmarks, _LEFT_EYEBROW_INNER, _RIGHT_EYEBROW_INNER) / scale
+    left_length = _distance(landmarks, _LEFT_EYEBROW_INNER, _LEFT_EYEBROW_OUTER) / scale
+    right_length = _distance(landmarks, _RIGHT_EYEBROW_INNER, _RIGHT_EYEBROW_OUTER) / scale
     return MeasurementResult(
         True,
         metrics={
             "left_height_ratio": round(left_height, 4),
             "right_height_ratio": round(right_height, 4),
             "symmetry_delta": round(abs(left_height - right_height), 4),
+            "left_tilt_deg": round(left_tilt, 2),
+            "right_tilt_deg": round(right_tilt, 2),
+            "interbrow_distance_ratio": round(interbrow, 4),
+            "left_length_ratio": round(left_length, 4),
+            "right_length_ratio": round(right_length, 4),
         },
     )
 
 
-def _measure_eyes(landmarks: list[Any], scale: float) -> MeasurementResult:
+def _measure_eyes(landmarks: list[Any], scale: float, face_width: float) -> MeasurementResult:
     left_width = _distance(landmarks, _LEFT_EYE_OUTER, _LEFT_EYE_INNER) / scale
     right_width = _distance(landmarks, _RIGHT_EYE_INNER, _RIGHT_EYE_OUTER) / scale
     left_openness = _distance(landmarks, _LEFT_EYE_TOP, _LEFT_EYE_BOTTOM) / scale
     right_openness = _distance(landmarks, _RIGHT_EYE_TOP, _RIGHT_EYE_BOTTOM) / scale
+    # Phase 14 (FR-023) additions. Intercanthal/interpupillary distance are
+    # normalized by face_width, not `scale` -- `scale` IS inter_ocular (the
+    # inner-canthi distance), so normalizing intercanthal distance by it
+    # would be a trivial ~1.0 constant; face_width matches the "how wide is
+    # X relative to the whole face" convention used elsewhere (cheeks/jaw).
+    # Scleral Show/Color, Limbal Ring, Under-Eye conditions, and Epicanthic
+    # Fold are deliberately not added here -- they need pixel/texture
+    # analysis this module has no basis for, not a landmark ratio.
+    left_canthal_tilt = _tilt_degrees(landmarks, _LEFT_EYE_INNER, _LEFT_EYE_OUTER)
+    right_canthal_tilt = _tilt_degrees(landmarks, _RIGHT_EYE_INNER, _RIGHT_EYE_OUTER)
+    intercanthal = _distance(landmarks, _LEFT_EYE_INNER, _RIGHT_EYE_INNER) / face_width if face_width else 0.0
+    interpupillary = (
+        _distance(landmarks, _LEFT_IRIS_CENTER, _RIGHT_IRIS_CENTER) / face_width if face_width else 0.0
+    )
     return MeasurementResult(
         True,
         metrics={
@@ -251,6 +328,12 @@ def _measure_eyes(landmarks: list[Any], scale: float) -> MeasurementResult:
             "left_openness_ratio": round(left_openness, 4),
             "right_openness_ratio": round(right_openness, 4),
             "symmetry_delta": round(abs(left_width - right_width), 4),
+            "left_canthal_tilt_deg": round(left_canthal_tilt, 2),
+            "right_canthal_tilt_deg": round(right_canthal_tilt, 2),
+            "left_shape_ratio": round(left_openness / left_width, 4) if left_width else 0.0,
+            "right_shape_ratio": round(right_openness / right_width, 4) if right_width else 0.0,
+            "intercanthal_to_face_width_ratio": round(intercanthal, 4),
+            "interpupillary_distance_ratio": round(interpupillary, 4),
         },
     )
 
@@ -258,34 +341,112 @@ def _measure_eyes(landmarks: list[Any], scale: float) -> MeasurementResult:
 def _measure_nose(landmarks: list[Any], scale: float) -> MeasurementResult:
     width = _distance(landmarks, _NOSE_LEFT_ALA, _NOSE_RIGHT_ALA) / scale
     length = _distance(landmarks, _NOSE_BRIDGE, _NOSE_BASE) / scale
+    # Phase 14 (FR-023): tip position along the bridge-to-base line (a 2D
+    # proxy for tip projection/rotation) and columella lateral deviation
+    # from the face midline (a proxy for columella/septum alignment).
+    # Nasofrontal Angle and Nasolabial Angle are deliberately NOT added --
+    # verified empirically this phase that both collapse to ~178-180
+    # degrees from a front-only photo (the candidate landmark triples sit
+    # too close to the face's vertical midline in a frontal projection to
+    # carry any real signal), which would be fabricated precision, not a
+    # genuine measurement.
+    bridge_to_base = _distance(landmarks, _NOSE_BRIDGE, _NOSE_BASE)
+    tip_to_bridge = _distance(landmarks, _NOSE_TIP, _NOSE_BRIDGE)
+    tip_position = tip_to_bridge / bridge_to_base if bridge_to_base else 0.0
+    midline_x = (landmarks[_FACE_LEFT].x + landmarks[_FACE_RIGHT].x) / 2
+    columella_deviation = abs(landmarks[_NOSE_TIP].x - midline_x) / scale
     return MeasurementResult(
         True,
         metrics={
             "width_ratio": round(width, 4),
             "length_ratio": round(length, 4),
             "width_to_length_ratio": round(width / length, 4) if length else 0.0,
+            "tip_position_ratio": round(tip_position, 4),
+            "columella_deviation_ratio": round(columella_deviation, 4),
         },
     )
 
 
-def _measure_cheeks(landmarks: list[Any], face_width: float) -> MeasurementResult:
+def _measure_cheeks(landmarks: list[Any], face_width: float, face_height: float) -> MeasurementResult:
     width = _distance(landmarks, _CHEEK_LEFT, _CHEEK_RIGHT) / face_width if face_width else 0.0
-    return MeasurementResult(True, metrics={"width_to_face_ratio": round(width, 4)})
+    # Phase 14 (FR-023) additions. Cheekbone Projection/Shape, Mid-Cheek
+    # Fullness, and Under-Cheek Hollowing are deliberately not added --
+    # they need depth/contour or texture information a front-only 2D mesh
+    # doesn't expose confidently.
+    jaw_width = _distance(landmarks, _JAW_LEFT, _JAW_RIGHT)
+    cheek_to_jaw = _distance(landmarks, _CHEEK_LEFT, _CHEEK_RIGHT) / jaw_width if jaw_width else 0.0
+    left_eye_bottom_y = landmarks[_LEFT_EYE_BOTTOM].y
+    right_eye_bottom_y = landmarks[_RIGHT_EYE_BOTTOM].y
+    cheekbone_height = (
+        ((left_eye_bottom_y + right_eye_bottom_y) / 2) - ((landmarks[_CHEEK_LEFT].y + landmarks[_CHEEK_RIGHT].y) / 2)
+    ) / face_height if face_height else 0.0
+    midline_x = (landmarks[_FACE_LEFT].x + landmarks[_FACE_RIGHT].x) / 2
+    left_to_midline = abs(landmarks[_CHEEK_LEFT].x - midline_x)
+    right_to_midline = abs(landmarks[_CHEEK_RIGHT].x - midline_x)
+    symmetry_delta = abs(left_to_midline - right_to_midline) / face_width if face_width else 0.0
+    return MeasurementResult(
+        True,
+        metrics={
+            "width_to_face_ratio": round(width, 4),
+            "cheek_to_jaw_ratio": round(cheek_to_jaw, 4),
+            "cheekbone_height_ratio": round(cheekbone_height, 4),
+            "symmetry_delta": round(symmetry_delta, 4),
+        },
+    )
 
 
-def _measure_jaw(landmarks: list[Any], face_width: float) -> MeasurementResult:
+def _measure_jaw(landmarks: list[Any], face_width: float, scale: float) -> MeasurementResult:
     width = _distance(landmarks, _JAW_LEFT, _JAW_RIGHT) / face_width if face_width else 0.0
-    return MeasurementResult(True, metrics={"width_to_face_ratio": round(width, 4)})
+    # Phase 14 (FR-023) additions. The two contour-angle metrics are a
+    # frontal-plane proxy for jaw taper/gonial angle, not a lateral
+    # cephalometric measurement -- a true gonial angle is measured in
+    # profile; this captures how the jaw corner reads from the front,
+    # which correlates with but is not equal to the clinical angle. Jaw
+    # Shape (Side) and Jawline Definition/Contrast are deliberately not
+    # added -- profile-only or texture-only concepts this module has no
+    # basis for from a single front photo.
+    cheek_width = _distance(landmarks, _CHEEK_LEFT, _CHEEK_RIGHT)
+    jaw_width = _distance(landmarks, _JAW_LEFT, _JAW_RIGHT)
+    jaw_to_cheek = jaw_width / cheek_width if cheek_width else 0.0
+    left_contour_angle = _angle_degrees(landmarks, _CHEEK_LEFT, _JAW_LEFT, _CHIN)
+    right_contour_angle = _angle_degrees(landmarks, _CHEEK_RIGHT, _JAW_RIGHT, _CHIN)
+    left_length = _distance(landmarks, _JAW_LEFT, _CHIN)
+    right_length = _distance(landmarks, _JAW_RIGHT, _CHIN)
+    length = ((left_length + right_length) / 2) / scale
+    flare_symmetry_delta = abs(left_length - right_length) / scale
+    return MeasurementResult(
+        True,
+        metrics={
+            "width_to_face_ratio": round(width, 4),
+            "jaw_to_cheek_ratio": round(jaw_to_cheek, 4),
+            "left_jaw_contour_angle_deg": round(left_contour_angle, 2),
+            "right_jaw_contour_angle_deg": round(right_contour_angle, 2),
+            "length_ratio": round(length, 4),
+            "flare_symmetry_delta": round(flare_symmetry_delta, 4),
+        },
+    )
 
 
 def _measure_lips(landmarks: list[Any], scale: float) -> MeasurementResult:
     width = _distance(landmarks, _MOUTH_LEFT, _MOUTH_RIGHT) / scale
     fullness = _distance(landmarks, _LIP_UPPER_TOP, _LIP_LOWER_BOTTOM) / scale
+    # Phase 14 (FR-023) additions. Cupid's Bow, Philtrum Shape, Vermilion
+    # Definition, and Gloss/Hydration are deliberately not added -- they
+    # need contour/texture points or pixel analysis not available from the
+    # 4 mouth landmarks already extracted here.
+    upper_thickness = _distance(landmarks, _LIP_UPPER_OUTER_TOP, _LIP_UPPER_TOP) / scale
+    lower_thickness = _distance(landmarks, _LIP_LOWER_BOTTOM, _LIP_LOWER_OUTER_BOTTOM) / scale
+    upper_to_lower = upper_thickness / lower_thickness if lower_thickness else 0.0
+    commissure_tilt = _tilt_degrees(landmarks, _MOUTH_LEFT, _MOUTH_RIGHT)
     return MeasurementResult(
         True,
         metrics={
             "width_ratio": round(width, 4),
             "fullness_ratio": round(fullness, 4),
+            "upper_lip_thickness_ratio": round(upper_thickness, 4),
+            "lower_lip_thickness_ratio": round(lower_thickness, 4),
+            "upper_to_lower_ratio": round(upper_to_lower, 4),
+            "oral_commissure_tilt_deg": round(commissure_tilt, 2),
         },
     )
 
@@ -294,7 +455,23 @@ def _measure_chin(landmarks: list[Any], face_height: float) -> MeasurementResult
     projection = (
         _distance(landmarks, _LIP_LOWER_BOTTOM, _CHIN) / face_height if face_height else 0.0
     )
-    return MeasurementResult(True, metrics={"projection_to_face_ratio": round(projection, 4)})
+    # Phase 14 (FR-023) additions. Shape, Contour, Fullness, Dimple, and
+    # Inclination are deliberately not added -- Inclination is a
+    # profile-only concept (same front-only-photo collapse risk as the
+    # excluded nasolabial/nasofrontal angles), and the rest need texture or
+    # dense-contour analysis this module has no basis for.
+    width = _distance(landmarks, _CHIN_LEFT, _CHIN_RIGHT) / face_height if face_height else 0.0
+    left_length = _distance(landmarks, _CHIN_LEFT, _CHIN)
+    right_length = _distance(landmarks, _CHIN_RIGHT, _CHIN)
+    symmetry_delta = abs(left_length - right_length) / face_height if face_height else 0.0
+    return MeasurementResult(
+        True,
+        metrics={
+            "projection_to_face_ratio": round(projection, 4),
+            "width_ratio": round(width, 4),
+            "symmetry_delta": round(symmetry_delta, 4),
+        },
+    )
 
 
 def _measure_skin(rgb_array: np.ndarray, landmarks: list[Any]) -> MeasurementResult:

@@ -5,7 +5,19 @@ from app.services.report_assembly_service import (
     assemble_sections,
     classify_recommendations,
     feature_recommendation_tier,
+    recommendation_text,
 )
+
+
+_NULL_TAGS = {
+    "cost": None,
+    "cadence": None,
+    "time_to_effect": None,
+    "difficulty": None,
+    "category": None,
+    "risk_level": None,
+    "product_or_method": None,
+}
 
 
 def _measurements() -> dict:
@@ -144,7 +156,7 @@ class TestAssembleSections:
             assert entry["summary_callout"] == feature
             assert entry["strengths"] == f"Strength for {feature}."
             assert entry["areas_of_note"] == f"Note for {feature}."
-            assert entry["projected_potential"] == [f"idea about {feature}"]
+            assert entry["projected_potential"] == [{"text": f"idea about {feature}", **_NULL_TAGS}]
             assert entry["measurement"]["available"] is True
 
     def test_attributes_default_to_empty_dict_when_absent(self):
@@ -216,17 +228,17 @@ class TestClassifyRecommendations:
     def test_otc_keyword_classified_as_otc(self):
         features = {"skin": {"recommendation_ideas": ["Try a vitamin C serum daily."]}}
         tiers = classify_recommendations(features)
-        assert "Try a vitamin C serum daily." in tiers["otc_skincare"]
+        assert [item["text"] for item in tiers["otc_skincare"]] == ["Try a vitamin C serum daily."]
 
     def test_clinic_keyword_classified_as_in_clinic(self):
         features = {"jaw": {"recommendation_ideas": ["Consider seeing a dermatologist about jawline contouring."]}}
         tiers = classify_recommendations(features)
-        assert "Consider seeing a dermatologist about jawline contouring." in tiers["in_clinic"]
+        assert [item["text"] for item in tiers["in_clinic"]] == ["Consider seeing a dermatologist about jawline contouring."]
 
     def test_generic_advice_defaults_to_at_home(self):
         features = {"skin": {"recommendation_ideas": ["Stay hydrated and get enough sleep."]}}
         tiers = classify_recommendations(features)
-        assert "Stay hydrated and get enough sleep." in tiers["at_home"]
+        assert [item["text"] for item in tiers["at_home"]] == ["Stay hydrated and get enough sleep."]
 
     def test_only_recommendation_ideas_are_classified_not_narrative_prose(self):
         """2026-09-17 regression test: Treatment Protocol phases were
@@ -236,9 +248,55 @@ class TestClassifyRecommendations:
         recommendation_ideas should ever appear in a tier."""
         features = {"skin": {"recommendation_ideas": ["Use a daily sunscreen."]}}
         tiers = classify_recommendations(features)
-        assert tiers["otc_skincare"] == ["Use a daily sunscreen."]
+        assert [item["text"] for item in tiers["otc_skincare"]] == ["Use a daily sunscreen."]
         assert tiers["in_clinic"] == []
         assert tiers["at_home"] == []
+
+    def test_legacy_string_shaped_ideas_still_classify_correctly(self):
+        """FR-025 backward compatibility -- a pre-Milestone-3 persisted
+        FacialAnalysisResult.narrative_result row has recommendation_ideas
+        as bare strings forever (no backfill migration)."""
+        features = {"skin": {"recommendation_ideas": ["Try a vitamin C serum daily."]}}
+        tiers = classify_recommendations(features)
+        assert tiers["otc_skincare"][0] == {"text": "Try a vitamin C serum daily.", **_NULL_TAGS}
+
+    def test_fr025_structured_items_carry_their_metadata_into_the_tier(self):
+        features = {
+            "skin": {
+                "recommendation_ideas": [
+                    {
+                        "text": "Try a vitamin C serum daily.",
+                        "cost": "$20-30",
+                        "cadence": "Daily",
+                        "difficulty": "Easy",
+                        "category": "Cosmetic",
+                        "risk_level": "Low",
+                        "product_or_method": "Vitamin C Serum",
+                    }
+                ]
+            }
+        }
+        tiers = classify_recommendations(features)
+        assert tiers["otc_skincare"][0] == {
+            "text": "Try a vitamin C serum daily.",
+            "cost": "$20-30",
+            "cadence": "Daily",
+            "time_to_effect": None,
+            "difficulty": "Easy",
+            "category": "Cosmetic",
+            "risk_level": "Low",
+            "product_or_method": "Vitamin C Serum",
+        }
+
+    def test_invalid_difficulty_normalizes_to_none(self):
+        features = {"skin": {"recommendation_ideas": [{"text": "Try a vitamin C serum daily.", "difficulty": "Extreme"}]}}
+        tiers = classify_recommendations(features)
+        assert tiers["otc_skincare"][0]["difficulty"] is None
+
+    def test_item_with_no_usable_text_is_dropped(self):
+        features = {"skin": {"recommendation_ideas": [{"cost": "$10"}, "Try a vitamin C serum daily."]}}
+        tiers = classify_recommendations(features)
+        assert len(tiers["otc_skincare"]) == 1
 
 
 class TestFeatureRecommendationTier:
@@ -264,6 +322,75 @@ class TestFeatureRecommendationTier:
     def test_at_home_and_otc_mixed_prefers_otc(self):
         ideas = ["Stay hydrated and get enough sleep.", "Try a vitamin C serum daily."]
         assert feature_recommendation_tier(ideas) == "otc_skincare"
+
+    def test_still_accepts_fr025_structured_items(self):
+        ideas = [{"text": "Try a vitamin C serum daily.", "cost": "$20-30"}]
+        assert feature_recommendation_tier(ideas) == "otc_skincare"
+
+
+class TestRecommendationText:
+    def test_extracts_text_from_legacy_bare_string(self):
+        assert recommendation_text("Stay hydrated.") == "Stay hydrated."
+
+    def test_extracts_text_from_fr025_structured_item(self):
+        assert recommendation_text({"text": "Stay hydrated.", "cost": None}) == "Stay hydrated."
+
+    def test_missing_text_key_returns_empty_string(self):
+        assert recommendation_text({"cost": "$10"}) == ""
+
+    def test_non_string_non_dict_returns_empty_string(self):
+        assert recommendation_text(None) == ""
+
+
+class TestNormalizeRecommendationItem:
+    def _normalize(self, idea):
+        # Exercised indirectly through classify_recommendations elsewhere;
+        # here we go through assemble_sections' projected_potential field,
+        # the other real caller of the private normalizer.
+        sections = assemble_sections(_measurements(), {"features": {"skin": {"recommendation_ideas": [idea]}}})
+        return sections["features"]["skin"]["projected_potential"][0]
+
+    def test_legacy_string_item_is_normalized_with_null_metadata(self):
+        assert self._normalize("Use a daily moisturizer.") == {"text": "Use a daily moisturizer.", **_NULL_TAGS}
+
+    def test_new_dict_item_passes_through_confirmed_fields(self):
+        idea = {
+            "text": "Use a daily moisturizer.",
+            "cost": "$15-25",
+            "cadence": "Nightly",
+            "difficulty": "Easy",
+            "category": "Cosmetic",
+            "risk_level": "Low",
+            "product_or_method": "Daily Moisturizer",
+        }
+        assert self._normalize(idea) == {
+            "text": "Use a daily moisturizer.",
+            "cost": "$15-25",
+            "cadence": "Nightly",
+            "time_to_effect": None,
+            "difficulty": "Easy",
+            "category": "Cosmetic",
+            "risk_level": "Low",
+            "product_or_method": "Daily Moisturizer",
+        }
+
+    def test_invalid_difficulty_normalizes_to_none(self):
+        idea = {"text": "Use a daily moisturizer.", "difficulty": "Extreme"}
+        assert self._normalize(idea)["difficulty"] is None
+
+    def test_invalid_category_normalizes_to_none(self):
+        idea = {"text": "Use a daily moisturizer.", "category": "Surgical"}
+        assert self._normalize(idea)["category"] is None
+
+    def test_invalid_risk_level_normalizes_to_none(self):
+        idea = {"text": "Use a daily moisturizer.", "risk_level": "Extreme"}
+        assert self._normalize(idea)["risk_level"] is None
+
+    def test_empty_text_item_is_dropped(self):
+        sections = assemble_sections(
+            _measurements(), {"features": {"skin": {"recommendation_ideas": [{"cost": "$10"}]}}}
+        )
+        assert sections["features"]["skin"]["projected_potential"] == []
 
 
 class TestFacialAssessmentsBackwardCompatibility:

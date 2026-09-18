@@ -2,15 +2,16 @@
 answers + the actual photos into a structured, per-feature narrative draft
 that report-generation (Phase 5) later wraps into the client-facing report.
 
-NFR-008 (client-stated) names OpenAI; this is built against DeepSeek
-instead (delivery-team decision, ASM-006 -- client_requirements.md v1.8,
-flagged for client awareness, not silent). DeepSeek's hosted API is
-OpenAI-Chat-Completions-compatible, so this uses the `openai` SDK pointed
-at a configurable base_url -- switching to real OpenAI later is a config
-change (AI_BASE_URL/AI_API_KEY/AI_MODEL), not a new implementation. No
-ABC/interface layer here (unlike EmailSender/PhotoStorage) -- DeepSeek and
-OpenAI are API-shape-compatible, so a full interface would be premature
-abstraction for what is actually just a configuration swap.
+NFR-008 (client-stated) names OpenAI; this ran against DeepSeek instead for
+a while (delivery-team decision, ASM-006 -- client_requirements.md v1.8,
+flagged for client awareness, not silent), since DeepSeek's hosted API is
+OpenAI-Chat-Completions-compatible -- this uses the `openai` SDK pointed at
+a configurable base_url, so the v1.27 switch back to real OpenAI was a
+config change (AI_BASE_URL/OPENAI_API_KEY/AI_MODEL), not a new
+implementation. No ABC/interface layer here (unlike EmailSender/
+PhotoStorage) -- DeepSeek and OpenAI are API-shape-compatible, so a full
+interface would be premature abstraction for what is actually just a
+configuration swap.
 
 Multimodal: the actual photos are sent as base64 images alongside the
 measurements and questionnaire text (FR-008's "not photo analysis alone",
@@ -129,11 +130,22 @@ _SYSTEM_PROMPT = (
     "single entry or leaving one out. Sub-section headings per feature (write exactly these "
     "headings, per feature, nothing else):\n"
     f"{_subsection_vocabulary_prompt()}\n"
-    "Each sub-section's content must be 4-7 sentences of specific, informational "
+    "Each sub-section's content must be 8-12 sentences of specific, informational "
     "observations grounded in the actual measurements, photos, and your own attribute "
     "classifications above -- never generic filler, and never a short summary; this is the "
-    "detailed body of the report, matching the depth of a real clinical-style write-up. "
-    "Naturally weave at least 2-3 of that feature's classified attribute values into each "
+    "detailed body of the report, matching the depth and thoroughness of a real "
+    "clinical-style write-up a person would pay for, not a quick overview. Cover multiple "
+    "distinct angles within the sub-section rather than restating one observation in "
+    "different words: what the measurements/attributes show, how that compares to typical "
+    "proportions or presentations for this feature, what it contributes to overall facial "
+    "harmony/balance, and any nuance worth calling out (asymmetry, a borderline "
+    "classification, something the photos show that the attribute vocabulary alone doesn't "
+    "capture). Longer and more thorough is always preferable to shorter here -- there is no "
+    "length penalty, so use the full range and favor the higher end (10-12 sentences) "
+    "whenever the feature has enough real signal (measurements, clear attributes, or "
+    "clearly visible detail in the photos) to support it; only stay closer to the lower end "
+    "when a feature genuinely has little to observe. "
+    "Naturally weave at least 3-4 of that feature's classified attribute values into each "
     "sub-section's sentences (e.g. \"a soft arch brow in a mid-set position with thick "
     "density\"), the same way you'd cite a measurement -- write it as natural prose, never "
     "as a raw 'key: value' pair or the literal attribute key name; when a feature has "
@@ -141,11 +153,13 @@ _SYSTEM_PROMPT = (
     "what's specifically relevant to that sub-section's own topic (e.g. Hair's \"Hair Loss\" "
     'sub-section should focus on hairline/density/thinning-relevant attributes, while "Hair '
     "Style\" focuses on texture/parting/styling-relevant ones). When a feature's measurement "
-    "data shows it is available, naturally cite the actual metric value in at least one "
-    'sentence across that feature\'s sub-sections (e.g. "your eye width ratio of 0.42..."), '
-    'not just a vague reference to "the measurements" -- when no measurement is available '
+    "data shows it is available, naturally cite the actual metric value in multiple "
+    'sentences across that feature\'s sub-sections, not just once (e.g. "your eye width '
+    'ratio of 0.42..." in one sentence, and a second, different metric cited later in the '
+    'same or another sub-section) -- not just a vague reference to "the measurements" -- '
+    "when no measurement is available "
     "for a feature, ground every sub-section in the photos and your attribute "
-    "classifications instead. "
+    "classifications instead, in the same descriptive depth. "
     "Use the questionnaire context to personalize tone, not to invent facts: "
     'reference the user\'s stated goal ("What is your goal?") when framing ambition '
     "in the closing recommendations, and their stated motivation for signing up so "
@@ -163,7 +177,10 @@ _SYSTEM_PROMPT = (
     "medical diagnosis, never say a treatment is required, and always frame any "
     "recommendation as something to discuss with a qualified professional, not an "
     "instruction. Do not reference Body Dysmorphic Disorder or make judgments about "
-    "the user's appearance being flawed -- describe features neutrally. "
+    "the user's appearance being flawed -- describe features neutrally. Any cost "
+    "estimate given anywhere in this response is illustrative only, never a "
+    "guaranteed price -- always approximate, and actual pricing should be confirmed "
+    "with a professional or retailer. "
     "Respond with a single JSON object with exactly four top-level keys: "
     '"features" (an object keyed by each of the 11 feature names, each value an object with: '
     '"attributes" -- an object with only the keys from that feature\'s vocabulary above that '
@@ -172,21 +189,42 @@ _SYSTEM_PROMPT = (
     "forced-filled); "
     '"sections" -- an object keyed by exactly that feature\'s own sub-section headings from '
     "the list above (all of them, never a subset, never a heading outside that feature's own "
-    "list), each value a 4-7 sentence sub-section body as described above; "
+    "list), each value an 8-12 sentence sub-section body as described above; "
     '"summary_callout" -- one full sentence summarizing this feature "at a glance", suitable for '
     "a report overview table; "
-    '"strengths" -- one short sentence naming something that is already working well for this '
-    "feature, evidence-grounded, never fabricated praise; "
-    '"areas_of_note" -- one short sentence naming something worth being aware of for this '
-    'feature, or "None notable." if genuinely nothing stands out -- never invented just to fill '
-    "the field; "
-    'and "recommendation_ideas" (an array of 1-3 short strings, each a complete suggestion '
-    "sentence)), "
+    '"strengths" -- two to three sentences naming what is already working well for this '
+    "feature, evidence-grounded (cite an attribute or measurement where relevant), never "
+    "fabricated praise -- one sentence is too thin here, give real substance; "
+    '"areas_of_note" -- two to three sentences naming what is worth being aware of for this '
+    'feature, in the same evidence-grounded depth, or "None notable." if genuinely nothing '
+    "stands out -- never invented just to fill the field; "
+    'and "recommendation_ideas" (an array of 1-3 objects, each describing one concrete '
+    'suggestion, with exactly these keys: "text" (a complete suggestion sentence, same '
+    'style as before); "cost" (a short, approximate USD estimate or range for that '
+    'specific suggestion, e.g. "$15-25" for a product or "$200-400" for an in-clinic '
+    "procedure, phrased always as an estimate, never a guaranteed price, since actual "
+    "pricing varies by provider, region, and brand -- use JSON null if the suggestion has "
+    'no meaningful cost, e.g. a lifestyle habit like "get more sleep"); "cadence" (a short '
+    'frequency/schedule phrase, e.g. "Nightly", "Daily, 5 min AM", "Weekly", "Monthly", '
+    '"One-time", or JSON null if a schedule genuinely doesn\'t apply); "time_to_effect" (a '
+    "short phrase for how long until a visible effect is plausible, e.g. \"Immediate\", "
+    '"2-4 weeks", "8+ weeks", or JSON null if not knowable); and "difficulty" (exactly one '
+    'of "Easy", "Medium", or "Hard" describing how much daily effort or commitment the '
+    "suggestion takes, or JSON null if it doesn't apply); \"category\" (exactly one of "
+    '"Cosmetic", "Lifestyle", or "Clinical" describing what kind of change the suggestion '
+    'is, or JSON null if it genuinely doesn\'t fit one of those); "risk_level" (exactly one '
+    'of "Low", "Medium", or "High" describing the suggestion\'s safety/reversibility risk, '
+    'or JSON null if not applicable); and "product_or_method" (a short name of the specific '
+    'product or method the suggestion refers to, e.g. "Eyebrow Tinting Kit" or "0.5% Retinol '
+    'Serum", or JSON null if the suggestion is a general habit with no specific product or '
+    "method) -- use JSON null for any of these seven fields rather than guessing a value you "
+    "aren't confident about, same posture as every other optional field in this prompt)), "
     '"closing_recommendations" (a synthesis across all 11 features, personalized per the goal/'
-    "motivation guidance above, written as exactly 4 short paragraphs separated by a blank line "
-    "(\\n\\n) in this fixed order: (1) overall facial harmony and the primary structural/skeletal "
-    "priorities, (2) the periorbital/eye region and its priorities, (3) hair and lower-face "
-    "grooming priorities, (4) a practical, sequenced next-steps paragraph -- every point made "
+    "motivation guidance above, written as exactly 4 substantial, thorough paragraphs (5-8 "
+    "sentences each, not short) separated by a blank line (\\n\\n) in this fixed order: (1) "
+    "overall facial harmony and the primary structural/skeletal priorities, (2) the "
+    "periorbital/eye region and its priorities, (3) hair and lower-face grooming "
+    "priorities, (4) a practical, sequenced next-steps paragraph -- every point made "
     "across these 4 paragraphs must trace back to a finding already covered in the per-feature "
     "sections above, never a new finding introduced here for the first time), "
     '"facial_age" (your best estimate of the subject\'s apparent age from the photos alone, as '
@@ -223,12 +261,12 @@ class NarrativeResult:
 @lru_cache
 def get_ai_client() -> AsyncOpenAI:
     settings = get_settings()
-    if not settings.ai_api_key:
+    if not settings.openai_api_key:
         raise AIProviderError(
-            "AI_API_KEY is not configured -- add a real key to Backend/.env before triggering analysis."
+            "OPENAI_API_KEY is not configured -- add a real key to Backend/.env before triggering analysis."
         )
     return AsyncOpenAI(
-        api_key=settings.ai_api_key,
+        api_key=settings.openai_api_key,
         base_url=settings.ai_base_url,
         timeout=settings.ai_request_timeout_seconds,
     )
@@ -338,6 +376,71 @@ def _sanitize_sections(feature: str, raw: Any) -> dict[str, str]:
     return {heading: raw[heading] for heading in allowed if isinstance(raw.get(heading), str) and raw[heading]}
 
 
+_ALLOWED_RECOMMENDATION_DIFFICULTIES = ("Easy", "Medium", "Hard")
+# FR-024 (Milestone 3) -- same closed-vocabulary posture as difficulty:
+# each drives a colored badge/tag on the frontend, so an unrecognized
+# value is dropped to None rather than passed through as free text.
+_ALLOWED_RECOMMENDATION_CATEGORIES = ("Cosmetic", "Lifestyle", "Clinical")
+_ALLOWED_RECOMMENDATION_RISK_LEVELS = ("Low", "Medium", "High")
+
+
+def _sanitize_recommendation_ideas(raw: Any) -> list[dict[str, Any]]:
+    """FR-025/FR-024 -- same 'never fail the whole feature over one bad
+    item' posture as _sanitize_attributes/_sanitize_sections. Tolerates a
+    bare string item (in case the model ignores the structured-object
+    instruction for one entry) by treating it as {"text": item} with every
+    metadata field absent, rather than dropping the whole recommendation
+    over a formatting slip. Drops items with no usable text entirely, and
+    drops any difficulty/category/risk_level value outside its fixed
+    vocabulary to None rather than passing an unrecognized value through
+    as free text -- each drives a colored badge downstream, so none of
+    them can be an unbounded string."""
+    if not isinstance(raw, list):
+        return []
+
+    def _clean_str(item: dict[str, Any], key: str) -> str | None:
+        value = item.get(key)
+        return value if isinstance(value, str) and value else None
+
+    sanitized: list[dict[str, Any]] = []
+    for item in raw:
+        if isinstance(item, str) and item:
+            sanitized.append(
+                {
+                    "text": item,
+                    "cost": None,
+                    "cadence": None,
+                    "time_to_effect": None,
+                    "difficulty": None,
+                    "category": None,
+                    "risk_level": None,
+                    "product_or_method": None,
+                }
+            )
+            continue
+        if not isinstance(item, dict):
+            continue
+        text = item.get("text")
+        if not isinstance(text, str) or not text:
+            continue
+        difficulty = item.get("difficulty")
+        category = item.get("category")
+        risk_level = item.get("risk_level")
+        sanitized.append(
+            {
+                "text": text,
+                "cost": _clean_str(item, "cost"),
+                "cadence": _clean_str(item, "cadence"),
+                "time_to_effect": _clean_str(item, "time_to_effect"),
+                "difficulty": difficulty if difficulty in _ALLOWED_RECOMMENDATION_DIFFICULTIES else None,
+                "category": category if category in _ALLOWED_RECOMMENDATION_CATEGORIES else None,
+                "risk_level": risk_level if risk_level in _ALLOWED_RECOMMENDATION_RISK_LEVELS else None,
+                "product_or_method": _clean_str(item, "product_or_method"),
+            }
+        )
+    return sanitized
+
+
 def _parse_response(raw_content: str) -> NarrativeResult:
     try:
         parsed = json.loads(raw_content)
@@ -358,6 +461,7 @@ def _parse_response(raw_content: str) -> NarrativeResult:
         if isinstance(entry, dict):
             entry["attributes"] = _sanitize_attributes(feature, entry.get("attributes"))
             entry["sections"] = _sanitize_sections(feature, entry.get("sections"))
+            entry["recommendation_ideas"] = _sanitize_recommendation_ideas(entry.get("recommendation_ideas"))
 
     # facial_age/hair_loss are best-effort estimates layered onto the same
     # call -- a missing, null, or malformed value here means "the model
@@ -388,15 +492,16 @@ async def generate_narrative(
                 {"role": "user", "content": user_content},
             ],
             response_format={"type": "json_object"},
-            # 2026-09-17: the expanded per-feature `sections` content (up to
-            # 16 separately-headed 4-7 sentence sub-sections across the 11
-            # features, replacing one 3-5 sentence narrative each) pushes
-            # estimated total output past a plausible default completion-
-            # token ceiling (~3.5-4k tokens estimated vs a common ~4096
-            # default) -- an explicit, generous max_tokens avoids a silently
-            # truncated response that then fails JSON parsing in
-            # _parse_response, well under gpt-4o's real output limit.
-            max_tokens=8192,
+            # 2026-09-18: per-feature `sections` content is now up to 16
+            # separately-headed 8-12 sentence sub-sections across the 11
+            # features, plus longer strengths/areas_of_note and a 4-paragraph
+            # closing_recommendations (5-8 sentences each) -- pushes
+            # estimated total output well past the prior 8192 budget.
+            # gpt-4o's real completion-token ceiling is 16384; set just under
+            # that so a genuinely long response still has headroom rather
+            # than being silently truncated (which would fail JSON parsing
+            # in _parse_response).
+            max_tokens=16000,
         )
     except OpenAIError as exc:
         raise AIProviderError(f"AI provider request failed: {exc}") from exc

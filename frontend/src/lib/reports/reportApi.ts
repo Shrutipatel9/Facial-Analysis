@@ -6,6 +6,30 @@ export interface ReportMeasurement {
   note: string | null
 }
 
+// FR-025 (Milestone 3) -- one protocol/recommendation line item's
+// structured metadata. Every field but `text` is nullable: the AI/report-
+// assembly layer never fabricates a value it isn't confident about
+// (Backend/app/services/report_assembly_service.py's
+// _normalize_recommendation_item) -- render an omitted badge, never a
+// placeholder, when a field is null.
+export interface RecommendationItem {
+  text: string
+  // Approximate USD estimate/range (e.g. "$15-25"), informational only --
+  // never a guaranteed price (FR-012).
+  cost: string | null
+  cadence: string | null
+  time_to_effect: string | null
+  // Exactly "Easy" | "Medium" | "Hard" -- any other value is dropped
+  // server-side, never passed through as free text.
+  difficulty: "Easy" | "Medium" | "Hard" | null
+  // FR-024 (Milestone 3) -- paired with the feature's existing before/
+  // after image (BeforeAfterBlock) for the first recommendation per
+  // feature only; every item still carries these tags regardless.
+  category: "Cosmetic" | "Lifestyle" | "Clinical" | null
+  risk_level: "Low" | "Medium" | "High" | null
+  product_or_method: string | null
+}
+
 export interface ReportFeatureSection {
   // Named narrative sub-sections (e.g. hair's "Hair Style"/"Hair Loss"/
   // "Hair Health") -- see Backend/app/services/ai_narrative_service.py's
@@ -18,7 +42,7 @@ export interface ReportFeatureSection {
   summary_callout: string
   strengths: string
   areas_of_note: string
-  projected_potential: string[]
+  projected_potential: RecommendationItem[]
   // AI-classified named attributes for this feature (e.g. hair's
   // hairline/texture/density), matching the depth of the client's own
   // reference report. Empty for a pre-this-change report or when nothing
@@ -113,9 +137,9 @@ export interface ReportFullContent {
   limitations: string
   features: Record<string, ReportFeatureSection>
   recommendations: {
-    at_home: string[]
-    otc_skincare: string[]
-    in_clinic: string[]
+    at_home: RecommendationItem[]
+    otc_skincare: RecommendationItem[]
+    in_clinic: RecommendationItem[]
   }
   closing_recommendations: string
   // Milestone 2 -- always all 5 ASSESSMENT_ORDER keys, all-unavailable for

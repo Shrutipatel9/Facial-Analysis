@@ -1,4 +1,4 @@
-from app.services.email_service import _build_otp_message
+from app.services.email_service import _build_otp_message, _build_support_request_message
 
 
 class TestBuildOtpMessage:
@@ -29,3 +29,32 @@ class TestBuildOtpMessage:
             from_addr="a@example.com", to_email="u@example.com", otp_code="222222", purpose="something-else"
         )
         assert "222222" in message.get_content()
+
+
+class TestBuildSupportRequestMessage:
+    def test_includes_subject_message_and_reply_to(self):
+        message = _build_support_request_message(
+            from_addr="noreply@example.com",
+            to_email="support@example.com",
+            from_user_email="user@example.com",
+            subject="Question about my report",
+            message="Why is my jaw score low?",
+            report_id="abc-123",
+        )
+        assert message["To"] == "support@example.com"
+        assert message["From"] == "noreply@example.com"
+        assert message["Reply-To"] == "user@example.com"
+        assert "Question about my report" in message["Subject"]
+        assert "Why is my jaw score low?" in message.get_content()
+        assert "abc-123" in message.get_content()
+
+    def test_omits_report_id_line_when_none(self):
+        message = _build_support_request_message(
+            from_addr="noreply@example.com",
+            to_email="support@example.com",
+            from_user_email="user@example.com",
+            subject="General question",
+            message="Just curious about pricing.",
+            report_id=None,
+        )
+        assert "Report ID" not in message.get_content()

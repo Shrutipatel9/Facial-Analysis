@@ -15,8 +15,22 @@ from app.models.report import Report
 from app.models.user import User
 from app.schemas.reports import ReportFullContentOut, ReportOut, ReportSummaryOut, ReportTeaserOut
 from app.services import report_service
+from app.services.report_assembly_service import normalize_recommendation_item
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+
+def _normalized_recommendation_items(raw: Any) -> list[dict[str, Any]]:
+    """FR-025 -- `record.sections` is a JSONB blob frozen once at report-
+    creation time (assemble_sections is never re-run on read), so a Report
+    created before FR-025 shipped still has its `recommendations`/
+    `projected_potential` lists as bare strings forever, while a newly
+    created one already has the structured-object shape. Normalizes both
+    at the API boundary so ReportFullContentOut's RecommendationItemOut
+    validation never fails on an old row."""
+    if not isinstance(raw, list):
+        return []
+    return [normalized for idea in raw if (normalized := normalize_recommendation_item(idea)) is not None]
 
 
 async def _to_report_out(db: AsyncSession, user_id: uuid.UUID, record: Report) -> ReportOut:
@@ -35,8 +49,15 @@ async def _to_report_out(db: AsyncSession, user_id: uuid.UUID, record: Report) -
     # (and faster than) the report's own content re-sync.
     visual_statuses = await report_service.get_visuals_status(db, user_id, record.id)
     features_with_visual_status: dict[str, Any] = {
-        feature: {**data, "visual_status": visual_statuses.get(feature, "not_attempted")}
+        feature: {
+            **data,
+            "visual_status": visual_statuses.get(feature, "not_attempted"),
+            "projected_potential": _normalized_recommendation_items(data.get("projected_potential")),
+        }
         for feature, data in features.items()
+    }
+    recommendations = {
+        tier: _normalized_recommendation_items(items) for tier, items in sections.get("recommendations", {}).items()
     }
 
     # Dashboard consolidation -- real elapsed CV+AI pipeline time, for the
@@ -60,7 +81,7 @@ async def _to_report_out(db: AsyncSession, user_id: uuid.UUID, record: Report) -
         understanding_your_results=sections.get("understanding_your_results", ""),
         limitations=sections.get("limitations", ""),
         features=features_with_visual_status,
-        recommendations=sections.get("recommendations", {}),
+        recommendations=recommendations,
         closing_recommendations=sections.get("closing_recommendations", ""),
         facial_assessments=sections.get("facial_assessments", {}),
         feature_scores=sections.get("feature_scores", {}),

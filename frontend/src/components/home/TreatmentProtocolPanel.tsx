@@ -1,3 +1,4 @@
+import { ProtocolItemRow } from "@/components/report/ui/ProtocolItemRow"
 import type { ReportFullContent } from "@/lib/reports/reportApi"
 
 const PHASES: {
@@ -80,11 +81,9 @@ export function TreatmentProtocolPanel({ full }: { full: ReportFullContent }) {
                   </h3>
                   <p className="text-xs text-muted-foreground">{phase.hint}</p>
                 </div>
-                <ul className="space-y-2">
-                  {items.map((item) => (
-                    <li key={item} className="text-sm leading-relaxed text-muted-foreground">
-                      {item}
-                    </li>
+                <ul className="space-y-3">
+                  {items.map((item, index) => (
+                    <ProtocolItemRow key={`${item.text}-${index}`} item={item} />
                   ))}
                 </ul>
                 <p className="text-xs leading-relaxed text-muted-foreground/90">{phase.rationale}</p>

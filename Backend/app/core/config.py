@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
     smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
     email_from: str | None = Field(default=None, alias="EMAIL_FROM")
+    # FR-027 (Milestone 3) -- destination inbox for Care Team support
+    # requests (app/services/support_service.py). Optional at startup, same
+    # posture as openai_api_key -- the service that needs it
+    # raises a clear error if called while unset, rather than failing app
+    # startup in an environment that doesn't exercise this feature yet.
+    support_email: str | None = Field(default=None, alias="SUPPORT_EMAIL")
 
     # --- Photo storage (BR-005, database-design.md §2.5) ---
     # "database" (default, bytes live in Postgres -- see PhotoBlob), "local"
@@ -81,12 +87,17 @@ class Settings(BaseSettings):
     # implementation. 2026-09-16: switched back to real OpenAI (client
     # supplied a key) by changing these defaults -- still no code change,
     # exactly as ai_narrative_service.py's module docstring anticipated.
-    # ai_api_key is intentionally optional here (not validated at startup
-    # like jwt_secret/otp_pepper) -- most local dev/testing never exercises
-    # this module at all; app/services/ai_narrative_service.py raises a
-    # clear error the first time a call is actually attempted without one.
+    # 2026-09-18: narrative generation and image generation were unified
+    # onto a single OPENAI_API_KEY (both are OpenAI now, so AI_API_KEY/
+    # IMAGE_GEN_API_KEY were two names for what had to stay the same
+    # credential anyway). openai_api_key is intentionally optional here
+    # (not validated at startup like jwt_secret/otp_pepper) -- most local
+    # dev/testing never exercises these modules at all;
+    # app/services/ai_narrative_service.py and image_generation_service.py
+    # each raise a clear error the first time a call is actually attempted
+    # without one.
     ai_provider: str = Field(default="openai", alias="AI_PROVIDER")
-    ai_api_key: str | None = Field(default=None, alias="AI_API_KEY")
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     ai_base_url: str = Field(default="https://api.openai.com/v1", alias="AI_BASE_URL")
     ai_model: str = Field(default="gpt-4o", alias="AI_MODEL")
     # 120 -> 180 (2026-09-17): the expanded per-feature `sections` content
@@ -106,18 +117,12 @@ class Settings(BaseSettings):
     # needed a real second ImageGenerationClient implementation, not just a
     # base_url swap -- see image_generation_service.py's
     # OpenAIImageGenerationClient, `image_gen_provider` is the vendor
-    # switch between the two. image_gen_api_key is intentionally optional
-    # here, same posture as ai_api_key -- most local dev/testing never
-    # exercises this module; image_generation_service.py raises a clear
-    # error the first time a call is actually attempted without one.
-    # IMAGE_GEN_API_KEY left unset in .env now falls back to AI_API_KEY
-    # (see _default_image_gen_api_key below) -- both providers are OpenAI
-    # as of 2026-09-16/17, so the same key genuinely is the same credential,
-    # not two coincidentally-equal secrets that would drift if rotated
-    # separately. Set IMAGE_GEN_API_KEY explicitly only if image generation
-    # should ever use a different key/vendor than narrative generation.
+    # switch between the two. 2026-09-18: image generation now reads the
+    # same openai_api_key field as narrative generation above (there is no
+    # separate image-gen key anymore) -- if image_gen_provider is ever set
+    # to "gemini", OPENAI_API_KEY would need to hold a Gemini key instead,
+    # which is an intentional edge case this project doesn't currently use.
     image_gen_provider: str = Field(default="openai", alias="IMAGE_GEN_PROVIDER")
-    image_gen_api_key: str | None = Field(default=None, alias="IMAGE_GEN_API_KEY")
     image_gen_model: str = Field(default="gpt-image-1", alias="IMAGE_GEN_MODEL")
     image_gen_request_timeout_seconds: int = Field(default=60, alias="IMAGE_GEN_REQUEST_TIMEOUT_SECONDS")
     # BR-006 cost control: retries only cover transient failures (timeout/
@@ -130,7 +135,7 @@ class Settings(BaseSettings):
 
     # --- Payment (FR-015, FR-016, BR-001) ---
     # stripe_secret_key is intentionally optional here, same posture as
-    # ai_api_key -- most local dev/testing never exercises a real Stripe
+    # openai_api_key -- most local dev/testing never exercises a real Stripe
     # call; app/services/payment_service.py raises a clear error the first
     # time a call is actually attempted without one.
     stripe_secret_key: str | None = Field(default=None, alias="STRIPE_SECRET_KEY")
@@ -190,18 +195,6 @@ class Settings(BaseSettings):
             ]
             if missing:
                 raise ValueError(f"PHOTO_STORAGE_PROVIDER=s3 requires {', '.join(missing)} to be set.")
-        return self
-
-    @model_validator(mode="after")
-    def _default_image_gen_api_key(self) -> "Settings":
-        """IMAGE_GEN_API_KEY falls back to AI_API_KEY when left unset --
-        2026-09-17, user-reported: both env vars held the exact same OpenAI
-        key value, which is real duplication now that both providers are
-        OpenAI, not two independent secrets. Only fills the gap (never
-        overrides an explicitly-set IMAGE_GEN_API_KEY), so image generation
-        can still point at a different key/vendor by setting it directly."""
-        if not self.image_gen_api_key and self.ai_api_key:
-            self.image_gen_api_key = self.ai_api_key
         return self
 
     @property

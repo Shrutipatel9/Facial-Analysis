@@ -8,7 +8,7 @@ regardless of the developer's local .env (which may have EMAIL_PROVIDER=smtp
 for real local testing) -- tests must never depend on real SMTP credentials
 existing, and use the email_sender fixture below to intercept sends anyway.
 
-Same reasoning applies to IMAGE_GEN_API_KEY (BR-006: real image-gen API
+Same reasoning applies to OPENAI_API_KEY (BR-006: real AI-provider API
 calls must never run in automated tests): the ai-visuals/report-visual
 integration tests rely on generation failing *fast* (a missing key short-
 circuits in GeminiImageGenerationClient.__init__/OpenAIImageGenerationClient
@@ -20,14 +20,12 @@ silently make the whole suite start issuing real, billed image-gen
 requests the moment they next ran `pytest`, discovered only via these two
 tests timing out against the live API's actual latency.
 
-AI_API_KEY is blanked here too (2026-09-17) -- not because narrative-
-generation tests need it blank (they monkeypatch ai_narrative_service.
-get_ai_client() directly via the `ai_recorder` fixture, which never
-touches Settings.ai_api_key at all), but because Settings.
-_default_image_gen_api_key (app/core/config.py) now falls back
-IMAGE_GEN_API_KEY to AI_API_KEY when the former is unset -- leaving
-AI_API_KEY as the developer's real key would silently re-open the exact
-image-gen hole the IMAGE_GEN_API_KEY override above exists to close.
+Narrative-generation tests don't strictly need OPENAI_API_KEY blank either
+(they monkeypatch ai_narrative_service.get_ai_client() directly via the
+`ai_recorder` fixture, which never touches Settings.openai_api_key at all)
+-- but since 2026-09-18 both narrative and image generation share this one
+key (app/core/config.py's Settings.openai_api_key), blanking it here is
+also what keeps the image-gen guard above effective.
 """
 
 import json
@@ -36,8 +34,7 @@ from types import SimpleNamespace
 
 os.environ["DATABASE_URL"] = "postgresql+asyncpg://facial_analysis:facial_analysis@localhost:5433/facial_analysis_test"
 os.environ["EMAIL_PROVIDER"] = "console"
-os.environ["AI_API_KEY"] = ""
-os.environ["IMAGE_GEN_API_KEY"] = ""
+os.environ["OPENAI_API_KEY"] = ""
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:3000")
 # Regardless of the developer's local .env (same posture as EMAIL_PROVIDER
 # above) -- "database" is also the real default now, so tests exercise the
@@ -155,7 +152,18 @@ def _fake_completion_response() -> SimpleNamespace:
                     "summary_callout": feature,
                     "strengths": "Looks natural.",
                     "areas_of_note": "None notable.",
-                    "recommendation_ideas": ["Use a daily moisturizer."],
+                    "recommendation_ideas": [
+                        {
+                            "text": "Use a daily moisturizer.",
+                            "cost": "$15-25",
+                            "cadence": "Nightly",
+                            "time_to_effect": "2-4 weeks",
+                            "difficulty": "Easy",
+                            "category": "Cosmetic",
+                            "risk_level": "Low",
+                            "product_or_method": "Daily Moisturizer",
+                        }
+                    ],
                 }
                 for feature in ANALYSIS_FEATURES
             },

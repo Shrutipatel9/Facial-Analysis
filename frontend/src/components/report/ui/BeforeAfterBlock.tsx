@@ -3,8 +3,10 @@
 import { Loader2 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
+import { MetaBadge, severityColor } from "./ProtocolItemRow"
 import { meridian } from "@/lib/report/meridianTokens"
 import * as reportApi from "@/lib/reports/reportApi"
+import type { RecommendationItem } from "@/lib/reports/reportApi"
 
 /**
  * Milestone 2 (FR-022) -- renders per `visualStatus`, exactly the 5
@@ -21,12 +23,19 @@ export function BeforeAfterBlock({
   featureLabel,
   visualStatus,
   beforeImageUrl,
+  illustratedRecommendation,
 }: {
   reportId: string
   feature: string
   featureLabel: string
   visualStatus: string
   beforeImageUrl: string | undefined
+  // FR-024 (Milestone 3) -- the same recommendation (the feature's first
+  // idea) this image was originally prompted from (report_visual_service.
+  // py's _build_prompt uses ideas[0]) -- paired here with its Category/
+  // Risk-Level/product tags. Optional so a report predating this phase
+  // (or a feature with no recommendations) renders identically to before.
+  illustratedRecommendation?: RecommendationItem
 }) {
   const [afterUrl, setAfterUrl] = useState<string | null>(null)
   const fetchedFor = useRef<string | null>(null)
@@ -132,6 +141,27 @@ export function BeforeAfterBlock({
           </figcaption>
         </figure>
       </div>
+      {illustratedRecommendation &&
+      (illustratedRecommendation.category ||
+        illustratedRecommendation.risk_level ||
+        illustratedRecommendation.product_or_method) ? (
+        <div
+          className="flex flex-wrap gap-1.5 px-3 py-2"
+          style={{ backgroundColor: meridian.surface.card, borderTop: `1px solid ${meridian.surface.recessed}` }}
+        >
+          {illustratedRecommendation.category ? (
+            <MetaBadge color={meridian.accent.secondary}>{illustratedRecommendation.category}</MetaBadge>
+          ) : null}
+          {illustratedRecommendation.risk_level ? (
+            <MetaBadge color={severityColor(illustratedRecommendation.risk_level)}>
+              {`${illustratedRecommendation.risk_level} risk`}
+            </MetaBadge>
+          ) : null}
+          {illustratedRecommendation.product_or_method ? (
+            <MetaBadge color={meridian.accent.secondary}>{illustratedRecommendation.product_or_method}</MetaBadge>
+          ) : null}
+        </div>
+      ) : null}
       <div
         className="px-3 py-1.5 text-center text-[11px] font-medium"
         style={{ backgroundColor: meridian.accent.primary, color: meridian.surface.card }}

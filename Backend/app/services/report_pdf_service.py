@@ -60,6 +60,7 @@ from reportlab.platypus import Image as RLImage
 from app.models.report import Report
 from app.models.user import User
 from app.services.facial_measurement_service import ANALYSIS_FEATURES
+from app.services.report_assembly_service import recommendation_text
 
 # Geist (SIL Open Font License -- app/assets/fonts/OFL.txt), the same
 # typeface the web app uses (frontend/src/app/globals.css's --font-sans /
@@ -292,6 +293,8 @@ def _humanize_metric_key(key: str) -> str:
         return _METRIC_LABEL_OVERRIDES[key]
     if key.endswith("_px"):
         return f"{key[: -len('_px')].replace('_', ' ').title()} (px)"
+    if key.endswith("_deg"):
+        return f"{key[: -len('_deg')].replace('_', ' ').title()} (°)"
     return key.replace("_", " ").title()
 
 
@@ -993,6 +996,16 @@ def _protocol_overview_flowables(
     ]
 
 
+_MEASUREMENT_ROW_CAP = 8
+"""Phase 14 (Milestone 3, FR-023) -- deepened per-feature metrics can now
+run to 8-11 rows for Eyes/Eyebrows, which pushed at least one feature past
+a single page (this PDF's own layout requires exactly one page per
+feature -- see test_pdf_is_not_duplicated). Capped here, same "condensed
+print artifact, full detail lives in the interactive report" posture as
+_PROTOCOL_PHASE_ITEM_CAP; never truncates the interactive /report page or
+the underlying data, only this table's row count."""
+
+
 def _measurement_flowables(styles: dict[str, ParagraphStyle], measurement: dict[str, Any]) -> list[Any]:
     """A small Metric/Value table of the actual numeric CV measurements for
     a feature (facial_measurement_service.MeasurementResult.metrics) --
@@ -1005,8 +1018,9 @@ def _measurement_flowables(styles: dict[str, ParagraphStyle], measurement: dict[
         note = measurement.get("note") or "No direct CV measurement for this feature — assessed from your photos."
         return [Paragraph("Measurements", styles["h2"]), Paragraph(note, styles["caption"])]
 
+    items = list(metrics.items())
     rows: list[list[Any]] = [[Paragraph("Metric", styles["table_head"]), Paragraph("Value", styles["table_head"])]]
-    for key, value in metrics.items():
+    for key, value in items[:_MEASUREMENT_ROW_CAP]:
         rows.append(
             [
                 Paragraph(_humanize_metric_key(key), styles["table_cell"]),
@@ -1026,7 +1040,11 @@ def _measurement_flowables(styles: dict[str, ParagraphStyle], measurement: dict[
             ]
         )
     )
-    return [Paragraph("Measurements", styles["h2"]), table]
+    flowables: list[Any] = [Paragraph("Measurements", styles["h2"]), table]
+    remaining = len(items) - _MEASUREMENT_ROW_CAP
+    if remaining > 0:
+        flowables.append(Paragraph(f"+ {remaining} more — see the interactive report", styles["caption"]))
+    return flowables
 
 
 _ASSESSMENT_LABELS = {
@@ -1401,7 +1419,9 @@ def _treatment_protocol_flowables(styles: dict[str, ParagraphStyle], sections: d
         flowables.append(Paragraph(f"{title}: {subtitle}", styles["phase_title"]))
         flowables.append(Paragraph(hint, styles["phase_subtitle"]))
         for item in items[:_PROTOCOL_PHASE_ITEM_CAP]:
-            flowables.append(Paragraph(f"• {_truncate(item, _PROTOCOL_ITEM_CHAR_CAP)}", styles["phase_bullet"]))
+            flowables.append(
+                Paragraph(f"• {_truncate(recommendation_text(item), _PROTOCOL_ITEM_CHAR_CAP)}", styles["phase_bullet"])
+            )
         remaining = len(items) - _PROTOCOL_PHASE_ITEM_CAP
         if remaining > 0:
             flowables.append(Paragraph(f"+ {remaining} more — see Closing Recommendations", styles["phase_subtitle"]))
@@ -1717,7 +1737,7 @@ def _feature_flowables(
         if tier and tier in _TIER_LABELS:
             tail.append(Paragraph(f"Recommendation tier: {_TIER_LABELS[tier]}", styles["tier_caption"]))
         for idea in ideas:
-            tail.append(Paragraph(f"• {idea}", styles["body"]))
+            tail.append(Paragraph(f"• {recommendation_text(idea)}", styles["body"]))
 
     tail.extend(_summary_callout_flowables(styles, feature, data))
     flowables.append(KeepTogether(tail))

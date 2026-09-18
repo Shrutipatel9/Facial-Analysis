@@ -127,6 +127,19 @@ class TestBuildPotentialRows:
         rows = _build_potential_rows(uuid.uuid4(), _FAKE_ANALYSIS)
         assert rows[0].attributes["priority_features"] == ["skin", "jaw", "nose"]
 
+    def test_accepts_fr025_structured_recommendation_items(self, monkeypatch):
+        """FR-025 -- projected_potential items are structured objects for a
+        newly-assembled report; this must extract `.text` rather than
+        embedding the raw object repr into the explanation string."""
+        feature_scores = {"skin": {"available": True, "score": 30.0, "label": "Needs Attention"}}
+        projected_potential = {"skin": [{"text": "Even out skin tone.", "cost": "$15-25"}]}
+        monkeypatch.setattr(
+            "app.services.ai_visual_service.assemble_sections",
+            lambda *a, **k: _fake_sections(feature_scores, projected_potential),
+        )
+        rows = _build_potential_rows(uuid.uuid4(), _FAKE_ANALYSIS)
+        assert rows[0].explanation == "Even out skin tone."
+
     def test_unavailable_or_non_needs_attention_features_are_skipped(self, monkeypatch):
         feature_scores = {
             "skin": {"available": False, "score": None, "label": None},

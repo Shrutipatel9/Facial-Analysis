@@ -100,6 +100,15 @@ export const changePasswordSchema = z
 
 export type ChangePasswordFormValues = z.infer<typeof changePasswordSchema>
 
+// FR-027 (Milestone 3) -- mirrors Backend/app/schemas/support.py's
+// SupportRequestCreate bounds.
+export const supportRequestSchema = z.object({
+  subject: z.string().min(1, "Enter a subject.").max(200, "Keep the subject under 200 characters."),
+  message: z.string().min(1, "Enter a message.").max(5000, "Keep the message under 5000 characters."),
+})
+
+export type SupportRequestFormValues = z.infer<typeof supportRequestSchema>
+
 /** Scores 0-4, mirroring the backend's rules only (length, letter, digit) --
  * plus a couple of UX-only bonus signals (mixed case, symbol) that the
  * backend doesn't require but that make the meter feel less binary. */

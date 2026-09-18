@@ -8,6 +8,7 @@ import { FacialScanVisual } from "@/components/auth/FacialScanVisual"
 import { AuroraBackground } from "@/components/branding/AuroraBackground"
 import { Logo } from "@/components/branding/Logo"
 import { Button } from "@/components/ui/button"
+import { BenefitsSection } from "./BenefitsSection"
 
 const FEATURES = [
   { icon: ScanFace, label: "11-feature facial analysis" },
@@ -148,6 +149,8 @@ export function LandingPage() {
           </main>
         </div>
       </div>
+
+      <BenefitsSection />
 
       <section className="mx-auto w-full max-w-6xl px-6 py-20 sm:py-24">
         <motion.div

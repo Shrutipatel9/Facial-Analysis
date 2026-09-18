@@ -98,14 +98,14 @@ class GeminiImageGenerationClient(ImageGenerationClient):
         from google import genai  # noqa: PLC0415
 
         settings = get_settings()
-        if not settings.image_gen_api_key:
+        if not settings.openai_api_key:
             raise ImageGenerationError(
-                "IMAGE_GEN_API_KEY is not configured -- add a real key to Backend/.env before "
+                "OPENAI_API_KEY is not configured -- add a real key to Backend/.env before "
                 "triggering visual generation.",
                 reason="unknown",
                 retryable=False,
             )
-        self._client = genai.Client(api_key=settings.image_gen_api_key)
+        self._client = genai.Client(api_key=settings.openai_api_key)
         self._model = settings.image_gen_model
         self._timeout = settings.image_gen_request_timeout_seconds
 
@@ -180,15 +180,15 @@ class OpenAIImageGenerationClient(ImageGenerationClient):
 
     def __init__(self) -> None:
         settings = get_settings()
-        if not settings.image_gen_api_key:
+        if not settings.openai_api_key:
             raise ImageGenerationError(
-                "IMAGE_GEN_API_KEY is not configured -- add a real key to Backend/.env before "
+                "OPENAI_API_KEY is not configured -- add a real key to Backend/.env before "
                 "triggering visual generation.",
                 reason="unknown",
                 retryable=False,
             )
         self._client = AsyncOpenAI(
-            api_key=settings.image_gen_api_key, timeout=settings.image_gen_request_timeout_seconds
+            api_key=settings.openai_api_key, timeout=settings.image_gen_request_timeout_seconds
         )
         self._model = settings.image_gen_model
 

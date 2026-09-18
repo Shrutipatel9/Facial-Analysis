@@ -47,7 +47,7 @@ from app.services.image_generation_service import (
     get_image_generation_client,
 )
 from app.services.photo_storage import get_photo_storage
-from app.services.report_assembly_service import assemble_sections
+from app.services.report_assembly_service import assemble_sections, recommendation_text
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +154,12 @@ def _build_potential_rows(user_id: uuid.UUID, analysis: FacialAnalysisResult) ->
     for feature in priority_features:
         feature_ideas = (sections.get("features", {}).get(feature) or {}).get("projected_potential") or []
         if feature_ideas:
-            ideas.append(feature_ideas[0])
+            # `sections` is a previously-persisted Report.sections JSONB blob
+            # (assemble_sections runs once at report-creation time, never
+            # re-run on read) -- a report created before FR-025 shipped still
+            # has projected_potential as bare strings forever, so this must
+            # tolerate both shapes, same as report_assembly_service.
+            ideas.append(recommendation_text(feature_ideas[0]))
 
     suggestion = "; ".join(ideas) if ideas else _POTENTIAL_FALLBACK_SUGGESTION
     return [

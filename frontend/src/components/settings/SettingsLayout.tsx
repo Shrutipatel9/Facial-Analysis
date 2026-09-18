@@ -1,11 +1,12 @@
 "use client"
 
-import { KeyRound, Receipt, UserRound } from "lucide-react"
+import { KeyRound, LifeBuoy, Receipt, UserRound } from "lucide-react"
 import { useState } from "react"
 
 import { AccountInfoSection } from "./AccountInfoSection"
 import { BillingSection } from "./BillingSection"
 import { PasswordSection } from "./PasswordSection"
+import { SupportSection } from "./SupportSection"
 import {
   workspaceAsideClassName,
   workspaceAsideHeader,
@@ -15,12 +16,13 @@ import {
   workspaceUnifiedPanelClassName,
 } from "@/components/layout/workspaceChrome"
 
-type SettingsSection = "account" | "password" | "billing"
+type SettingsSection = "account" | "password" | "billing" | "support"
 
 const NAV_ITEMS: { section: SettingsSection; label: string; icon: typeof UserRound }[] = [
   { section: "account", label: "Account Info", icon: UserRound },
   { section: "password", label: "Password", icon: KeyRound },
   { section: "billing", label: "Billing", icon: Receipt },
+  { section: "support", label: "Contact Us", icon: LifeBuoy },
 ]
 
 /**
@@ -59,6 +61,7 @@ export function SettingsLayout() {
             {activeSection === "account" ? <AccountInfoSection /> : null}
             {activeSection === "password" ? <PasswordSection /> : null}
             {activeSection === "billing" ? <BillingSection /> : null}
+            {activeSection === "support" ? <SupportSection /> : null}
           </div>
         </div>
       </div>

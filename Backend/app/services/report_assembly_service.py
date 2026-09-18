@@ -136,7 +136,52 @@ def _classify_one(text: str) -> str:
     return "at_home"
 
 
-def feature_recommendation_tier(recommendation_ideas: list[str]) -> str | None:
+def recommendation_text(idea: Any) -> str:
+    """FR-025 (Milestone 3) -- extracts display text from one recommendation
+    idea, tolerating both the pre-Milestone-3 bare-string shape and the
+    Milestone-3 structured-object shape (an already-persisted
+    FacialAnalysisResult.narrative_result row can be either, forever -- no
+    backfill migration touches existing data). Public (no leading
+    underscore): report_visual_service.py, ai_visual_service.py, and
+    report_pdf_service.py all read recommendation_ideas/projected_potential
+    directly and need this same extraction, rather than each growing its
+    own private copy."""
+    if isinstance(idea, dict):
+        text = idea.get("text")
+        return text if isinstance(text, str) else ""
+    return idea if isinstance(idea, str) else ""
+
+
+def normalize_recommendation_item(idea: Any) -> dict[str, Any] | None:
+    """FR-025/FR-024 -- coerces one recommendation idea (either shape
+    above) into the structured object shape RecommendationItemOut
+    (app/schemas/reports.py) requires. Returns None for an item with no
+    usable text at all (defensive -- should not happen for either on-disk
+    shape). category/risk_level/product_or_method (FR-024) default to None
+    the same way as every other optional field here -- a pre-Phase-15
+    persisted item simply has no such keys, .get() naturally yields None."""
+    text = recommendation_text(idea)
+    if not text:
+        return None
+    is_dict = isinstance(idea, dict)
+    difficulty = idea.get("difficulty") if is_dict else None
+    category = idea.get("category") if is_dict else None
+    risk_level = idea.get("risk_level") if is_dict else None
+    return {
+        "text": text,
+        "cost": idea.get("cost") if is_dict and isinstance(idea.get("cost"), str) else None,
+        "cadence": idea.get("cadence") if is_dict and isinstance(idea.get("cadence"), str) else None,
+        "time_to_effect": idea.get("time_to_effect") if is_dict and isinstance(idea.get("time_to_effect"), str) else None,
+        "difficulty": difficulty if difficulty in ("Easy", "Medium", "Hard") else None,
+        "category": category if category in ("Cosmetic", "Lifestyle", "Clinical") else None,
+        "risk_level": risk_level if risk_level in ("Low", "Medium", "High") else None,
+        "product_or_method": idea.get("product_or_method")
+        if is_dict and isinstance(idea.get("product_or_method"), str)
+        else None,
+    }
+
+
+def feature_recommendation_tier(recommendation_ideas: list[Any]) -> str | None:
     """PDF-redesign addition -- one tier label per feature (not just the
     report-level 3 bucketed lists `classify_recommendations` already
     produces), for a per-feature caption on the PDF's feature pages
@@ -146,19 +191,22 @@ def feature_recommendation_tier(recommendation_ideas: list[str]) -> str | None:
     at_home, i.e. the most clinical idea present wins) rather than a new
     rule -- a feature's tier is "the highest tier any one of its own ideas
     falls into". Returns None when a feature has no recommendation ideas at
-    all (nothing to caption)."""
+    all (nothing to caption). Accepts either the legacy bare-string or the
+    FR-025 structured-object shape per idea via `recommendation_text`."""
     if not recommendation_ideas:
         return None
-    tiers_present = {_classify_one(idea) for idea in recommendation_ideas}
+    tiers_present = {_classify_one(recommendation_text(idea)) for idea in recommendation_ideas}
     for tier in ("in_clinic", "otc_skincare", "at_home"):
         if tier in tiers_present:
             return tier
     return None  # unreachable in practice -- _classify_one always returns one of the three tiers above
 
 
-def classify_recommendations(features: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
+def classify_recommendations(features: dict[str, dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """Buckets every feature's recommendation_ideas into the three FR-012
-    tiers. First-pass keyword heuristic -- see module docstring.
+    tiers, normalizing each item to the FR-025 structured-object shape
+    (RecommendationItemOut) along the way -- see normalize_recommendation_item.
+    First-pass keyword heuristic -- see module docstring.
 
     Previously also sentence-split `closing_recommendations` (the 4-
     paragraph narrative synthesis) into tier items; removed 2026-09-17
@@ -173,11 +221,14 @@ def classify_recommendations(features: dict[str, dict[str, Any]]) -> dict[str, l
     synthesis still gets its own dedicated display (Closing Recommendations
     page/section, via `sections["closing_recommendations"]` below) -- this
     just stops it from being double-shown as Treatment Protocol bullets."""
-    tiers: dict[str, list[str]] = {"at_home": [], "otc_skincare": [], "in_clinic": []}
+    tiers: dict[str, list[dict[str, Any]]] = {"at_home": [], "otc_skincare": [], "in_clinic": []}
 
     for feature_data in features.values():
         for idea in feature_data.get("recommendation_ideas", []) or []:
-            tiers[_classify_one(idea)].append(idea)
+            normalized = normalize_recommendation_item(idea)
+            if normalized is None:
+                continue
+            tiers[_classify_one(normalized["text"])].append(normalized)
 
     return tiers
 
@@ -225,6 +276,11 @@ def assemble_sections(
             "note": "No measurement recorded.",
         }
         recommendation_ideas = narrative_entry.get("recommendation_ideas", []) or []
+        normalized_recommendation_ideas = [
+            normalized
+            for idea in recommendation_ideas
+            if (normalized := normalize_recommendation_item(idea)) is not None
+        ]
         features[feature] = {
             # Per-feature named narrative sub-sections (e.g. hair's "Hair
             # Style"/"Hair Loss"/"Hair Health") -- see ai_narrative_service.
@@ -236,7 +292,7 @@ def assemble_sections(
             "summary_callout": narrative_entry.get("summary_callout") or _teaser_summary_callout(measurement),
             "strengths": narrative_entry.get("strengths", ""),
             "areas_of_note": narrative_entry.get("areas_of_note", ""),
-            "projected_potential": recommendation_ideas,
+            "projected_potential": normalized_recommendation_ideas,
             "measurement": measurement,
             "recommendation_tier": feature_recommendation_tier(recommendation_ideas),
             # AI-classified named attributes for this feature (e.g. hair's

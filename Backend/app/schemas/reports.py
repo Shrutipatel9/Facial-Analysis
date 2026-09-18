@@ -36,6 +36,27 @@ class FeatureScoreOut(BaseModel):
     reference_value: str | None = None
 
 
+class RecommendationItemOut(BaseModel):
+    """FR-025/FR-024 (Milestone 3) -- one protocol/recommendation line
+    item, carrying optional structured metadata alongside its text. Every
+    field but `text` is nullable: report_assembly_service.normalize_recommendation_item
+    never fabricates a value the AI didn't confidently supply -- a missing
+    field renders as an omitted badge on the frontend, never a fake
+    placeholder value."""
+
+    text: str
+    cost: str | None = None
+    cadence: str | None = None
+    time_to_effect: str | None = None
+    difficulty: str | None = None
+    # FR-024 -- paired with the feature's existing before/after image
+    # (BeforeAfterBlock.tsx) for the first recommendation per feature only;
+    # every item still carries these tags regardless of illustration.
+    category: str | None = None
+    risk_level: str | None = None
+    product_or_method: str | None = None
+
+
 class FeatureSectionOut(BaseModel):
     # Named narrative sub-sections (e.g. hair's "Hair Style"/"Hair Loss"/
     # "Hair Health") -- see ai_narrative_service.py's _FEATURE_SUBSECTIONS.
@@ -47,7 +68,7 @@ class FeatureSectionOut(BaseModel):
     summary_callout: str
     strengths: str
     areas_of_note: str
-    projected_potential: list[str]
+    projected_potential: list[RecommendationItemOut]
     # AI-classified named attributes for this feature (e.g. hair's
     # hairline/texture/density), matching the depth of the client's own
     # reference report -- see ai_narrative_service.py's
@@ -135,7 +156,7 @@ class ReportFullContentOut(BaseModel):
     understanding_your_results: str
     limitations: str
     features: dict[str, FeatureSectionOut]
-    recommendations: dict[str, list[str]]
+    recommendations: dict[str, list[RecommendationItemOut]]
     closing_recommendations: str
     # Milestone 2 (FR-018) -- always all 5 keys (dimorphism/prototypicality/
     # proportions/symmetry/face_shape), all-unavailable for a pre-Milestone-2

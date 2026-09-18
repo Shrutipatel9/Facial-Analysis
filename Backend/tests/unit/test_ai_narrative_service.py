@@ -9,6 +9,7 @@ from app.services.ai_narrative_service import (
     _parse_hair_loss,
     _parse_response,
     _sanitize_attributes,
+    _sanitize_recommendation_ideas,
     _sanitize_sections,
     format_questionnaire_context,
 )
@@ -71,7 +72,7 @@ class TestSystemPrompt:
         assert "use JSON null" in _SYSTEM_PROMPT
 
     def test_requires_four_paragraph_closing_recommendations(self):
-        assert "exactly 4 short paragraphs" in _SYSTEM_PROMPT
+        assert "exactly 4 substantial, thorough paragraphs" in _SYSTEM_PROMPT
         assert "periorbital/eye region" in _SYSTEM_PROMPT
 
     def test_includes_every_feature_attribute_vocabulary(self):
@@ -93,7 +94,26 @@ class TestSystemPrompt:
     def test_requires_sections_not_a_single_narrative(self):
         assert '"sections"' in _SYSTEM_PROMPT
         assert '"narrative"' not in _SYSTEM_PROMPT
-        assert "4-7 sentences" in _SYSTEM_PROMPT
+        assert "8-12 sentences" in _SYSTEM_PROMPT
+
+    def test_requires_structured_recommendation_fields(self):
+        # FR-025 (Milestone 3) -- every recommendation idea must be an
+        # object carrying these four optional metadata fields, not a bare
+        # string.
+        for key in ('"cost"', '"cadence"', '"time_to_effect"', '"difficulty"'):
+            assert key in _SYSTEM_PROMPT
+        assert '"Easy", "Medium", or "Hard"' in _SYSTEM_PROMPT
+
+    def test_recommendation_cost_is_hedged(self):
+        assert "never a guaranteed price" in _SYSTEM_PROMPT
+
+    def test_requires_fr024_recommendation_tag_fields(self):
+        # FR-024 (Milestone 3) -- category/risk_level/product_or_method,
+        # paired with the feature's existing before/after image.
+        for key in ('"category"', '"risk_level"', '"product_or_method"'):
+            assert key in _SYSTEM_PROMPT
+        assert '"Cosmetic", "Lifestyle", or "Clinical"' in _SYSTEM_PROMPT
+        assert '"Low", "Medium", or "High"' in _SYSTEM_PROMPT
 
 
 class TestSanitizeAttributes:
@@ -136,6 +156,84 @@ class TestSanitizeSections:
         assert _sanitize_sections("nose", {"Nose": "Balanced.", "Cheek Structure": "wrong feature"}) == {
             "Nose": "Balanced."
         }
+
+
+_NULL_TAGS = {
+    "cost": None,
+    "cadence": None,
+    "time_to_effect": None,
+    "difficulty": None,
+    "category": None,
+    "risk_level": None,
+    "product_or_method": None,
+}
+
+
+class TestSanitizeRecommendationIdeas:
+    def test_keeps_well_formed_items(self):
+        raw = [
+            {
+                "text": "Use a daily moisturizer.",
+                "cost": "$15-25",
+                "cadence": "Nightly",
+                "difficulty": "Easy",
+                "category": "Cosmetic",
+                "risk_level": "Low",
+                "product_or_method": "Daily Moisturizer",
+            }
+        ]
+        assert _sanitize_recommendation_ideas(raw) == [
+            {
+                "text": "Use a daily moisturizer.",
+                "cost": "$15-25",
+                "cadence": "Nightly",
+                "time_to_effect": None,
+                "difficulty": "Easy",
+                "category": "Cosmetic",
+                "risk_level": "Low",
+                "product_or_method": "Daily Moisturizer",
+            }
+        ]
+
+    def test_drops_items_with_no_text(self):
+        raw = [{"cost": "$10"}, {"text": ""}, {"text": "Valid idea."}]
+        assert _sanitize_recommendation_ideas(raw) == [{"text": "Valid idea.", **_NULL_TAGS}]
+
+    def test_bare_string_item_becomes_text_only_object(self):
+        assert _sanitize_recommendation_ideas(["Use a daily moisturizer."]) == [
+            {"text": "Use a daily moisturizer.", **_NULL_TAGS}
+        ]
+
+    def test_invalid_difficulty_is_dropped_to_none(self):
+        raw = [{"text": "Valid idea.", "difficulty": "Extreme"}]
+        assert _sanitize_recommendation_ideas(raw)[0]["difficulty"] is None
+
+    def test_invalid_category_is_dropped_to_none(self):
+        raw = [{"text": "Valid idea.", "category": "Surgical"}]
+        assert _sanitize_recommendation_ideas(raw)[0]["category"] is None
+
+    def test_invalid_risk_level_is_dropped_to_none(self):
+        raw = [{"text": "Valid idea.", "risk_level": "Extreme"}]
+        assert _sanitize_recommendation_ideas(raw)[0]["risk_level"] is None
+
+    def test_product_or_method_passes_through_when_a_string(self):
+        raw = [{"text": "Valid idea.", "product_or_method": "Eyebrow Tinting Kit"}]
+        assert _sanitize_recommendation_ideas(raw)[0]["product_or_method"] == "Eyebrow Tinting Kit"
+
+    def test_non_string_metadata_fields_are_dropped(self):
+        raw = [{"text": "Valid idea.", "cost": 25, "cadence": None}]
+        result = _sanitize_recommendation_ideas(raw)
+        assert result[0]["cost"] is None
+        assert result[0]["cadence"] is None
+
+    def test_non_list_input_returns_empty_list(self):
+        assert _sanitize_recommendation_ideas(None) == []
+        assert _sanitize_recommendation_ideas("not a list") == []
+
+    def test_non_dict_non_string_item_is_dropped(self):
+        assert _sanitize_recommendation_ideas([123, {"text": "Valid idea."}]) == [
+            {"text": "Valid idea.", **_NULL_TAGS}
+        ]
 
 
 def _minimal_features() -> dict:
@@ -257,6 +355,27 @@ class TestParseResponse:
         result = _parse_response(raw)
         assert result.facial_age is None
         assert result.closing_recommendations == "c"
+
+    def test_recommendation_ideas_are_sanitized_in_the_full_response(self):
+        features = _minimal_features()
+        features["hair"]["recommendation_ideas"] = [
+            {"text": "Trim regularly.", "cost": "$20", "difficulty": "Not a real level"},
+            {"cost": "$5"},  # no text -- must be dropped
+            "Use a leave-in conditioner.",  # legacy bare-string shape
+        ]
+        raw = json.dumps({"features": features, "closing_recommendations": "c"})
+        result = _parse_response(raw)
+        assert result.features["hair"]["recommendation_ideas"] == [
+            {"text": "Trim regularly.", **{**_NULL_TAGS, "cost": "$20"}},
+            {"text": "Use a leave-in conditioner.", **_NULL_TAGS},
+        ]
+
+    def test_missing_recommendation_ideas_key_becomes_empty_list(self):
+        features = _minimal_features()
+        del features["hair"]["recommendation_ideas"]
+        raw = json.dumps({"features": features, "closing_recommendations": "c"})
+        result = _parse_response(raw)
+        assert result.features["hair"]["recommendation_ideas"] == []
 
     def test_still_raises_when_features_key_is_missing(self):
         raw = json.dumps({"closing_recommendations": "c"})

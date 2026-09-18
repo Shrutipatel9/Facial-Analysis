@@ -8,6 +8,7 @@ from app.api.routers.payments import router as payments_router
 from app.api.routers.photos import router as photos_router
 from app.api.routers.questionnaire import router as questionnaire_router
 from app.api.routers.reports import router as reports_router
+from app.api.routers.support import router as support_router
 from app.api.routers.users import router as users_router
 
 api_router = APIRouter()
@@ -20,3 +21,4 @@ api_router.include_router(reports_router)
 api_router.include_router(payments_router)
 api_router.include_router(ai_visuals_router)
 api_router.include_router(chat_router)
+api_router.include_router(support_router)

@@ -5,6 +5,7 @@ import { motion } from "motion/react"
 import { BeforeAfterBlock } from "../ui/BeforeAfterBlock"
 import { FeatureMetricsBlock } from "../ui/FeatureMetricsBlock"
 import { HairLossScale } from "../ui/HairLossScale"
+import { ProtocolItemRow } from "../ui/ProtocolItemRow"
 import { meridian } from "@/lib/report/meridianTokens"
 import { humanizeMetricKey } from "@/lib/report/metricLabels"
 import { FEATURE_LABELS, featureAnchorId } from "@/lib/report/reportFeatures"
@@ -126,12 +127,9 @@ export function FeatureSection({
       </div>
 
       {data.projected_potential.length > 0 ? (
-        <ul className="space-y-1 pl-1 text-sm" style={{ color: meridian.ink.muted }}>
-          {data.projected_potential.map((idea) => (
-            <li key={idea} className="flex gap-2">
-              <span style={{ color: meridian.accent.primary }}>•</span>
-              <span>{idea}</span>
-            </li>
+        <ul className="space-y-3 pl-1">
+          {data.projected_potential.map((idea, index) => (
+            <ProtocolItemRow key={`${idea.text}-${index}`} item={idea} />
           ))}
         </ul>
       ) : null}
@@ -142,6 +140,7 @@ export function FeatureSection({
         featureLabel={label}
         visualStatus={visualStatus}
         beforeImageUrl={imageUrl}
+        illustratedRecommendation={data.projected_potential[0]}
       />
     </motion.div>
   )

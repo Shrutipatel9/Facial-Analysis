@@ -217,18 +217,18 @@ async def run_analysis_pipeline(analysis_id: uuid.UUID) -> None:
         # already in flight or done. Best-effort: a failure here must never
         # fail the analysis pipeline itself, so each kind is isolated.
         #
-        # Gated on image_gen_api_key actually being configured: with no key,
+        # Gated on openai_api_key actually being configured: with no key,
         # get_or_create_visuals would still create AiVisual rows and spawn a
         # background generate_all_visuals task per kind that's only *certain*
         # to fail (each one discovers the missing key deeper inside, in
         # _generate_one_visual) -- pure DB/task churn with no chance of a
         # real image, for every single completed analysis. This is also
-        # exactly the test suite's own posture: AI_API_KEY/IMAGE_GEN_API_KEY
-        # are deliberately blank there (tests/conftest.py, BR-006 -- real
+        # exactly the test suite's own posture: OPENAI_API_KEY is
+        # deliberately blank there (tests/conftest.py, BR-006 -- real
         # provider calls must never run in automated tests), so this guard
         # keeps this new auto-start a no-op in tests without any test-only
         # branching -- the same key-presence check production relies on.
-        if get_settings().image_gen_api_key:
+        if get_settings().openai_api_key:
             for kind in ai_visual_service.VALID_KINDS:
                 try:
                     await ai_visual_service.get_or_create_visuals(session, record.user_id, kind)

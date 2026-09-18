@@ -30,6 +30,14 @@ class EmailSender(ABC):
         """Raise EmailDeliveryError on failure -- callers must not report a
         successful send to the client when this raises."""
 
+    @abstractmethod
+    async def send_support_request_email(
+        self, *, to_email: str, from_user_email: str, subject: str, message: str, report_id: str | None
+    ) -> None:
+        """FR-027 (Milestone 3) -- relays a Care Team support request to the
+        support inbox. Raise EmailDeliveryError on failure, same contract as
+        send_otp_email."""
+
 
 class ConsoleEmailSender(EmailSender):
     """Development-only sender: logs the OTP instead of sending real email.
@@ -42,6 +50,18 @@ class ConsoleEmailSender(EmailSender):
 
     async def send_otp_email(self, *, to_email: str, otp_code: str, purpose: str) -> None:
         logger.info("[dev email] OTP for %s (%s): %s", to_email, purpose, otp_code)
+
+    async def send_support_request_email(
+        self, *, to_email: str, from_user_email: str, subject: str, message: str, report_id: str | None
+    ) -> None:
+        logger.info(
+            "[dev email] Support request to %s from %s (report_id=%s): %s -- %s",
+            to_email,
+            from_user_email,
+            report_id,
+            subject,
+            message,
+        )
 
 
 def _build_otp_message(*, from_addr: str, to_email: str, otp_code: str, purpose: str) -> EmailMessage:
@@ -65,6 +85,27 @@ If you didn't request this, you can safely ignore this email.
     return message
 
 
+def _build_support_request_message(
+    *, from_addr: str, to_email: str, from_user_email: str, subject: str, message: str, report_id: str | None
+) -> EmailMessage:
+    email_message = EmailMessage()
+    email_message["Subject"] = f"[Care Team] {subject}"
+    email_message["From"] = from_addr
+    email_message["To"] = to_email
+    email_message["Reply-To"] = from_user_email
+    report_line = f"Report ID: {report_id}\n" if report_id else ""
+    email_message.set_content(
+        f"""New Care Team support request.
+
+From: {from_user_email}
+{report_line}
+{message}
+
+-- Facial Analysis"""
+    )
+    return email_message
+
+
 class SmtpEmailSender(EmailSender):
     """Sends real email over SMTP with STARTTLS (e.g. Gmail: smtp.gmail.com:587).
 
@@ -86,6 +127,24 @@ class SmtpEmailSender(EmailSender):
         except (smtplib.SMTPException, OSError) as exc:
             logger.exception("SMTP send failed for purpose=%s", purpose)
             raise EmailDeliveryError("Failed to send verification email.") from exc
+
+    async def send_support_request_email(
+        self, *, to_email: str, from_user_email: str, subject: str, message: str, report_id: str | None
+    ) -> None:
+        settings = get_settings()
+        email_message = _build_support_request_message(
+            from_addr=settings.email_from,  # type: ignore[arg-type]  # guaranteed non-None when provider=smtp
+            to_email=to_email,
+            from_user_email=from_user_email,
+            subject=subject,
+            message=message,
+            report_id=report_id,
+        )
+        try:
+            await asyncio.to_thread(self._send_sync, email_message)
+        except (smtplib.SMTPException, OSError) as exc:
+            logger.exception("SMTP send failed for a support request")
+            raise EmailDeliveryError("Failed to send support request.") from exc
 
     def _send_sync(self, message: EmailMessage) -> None:
         settings = get_settings()

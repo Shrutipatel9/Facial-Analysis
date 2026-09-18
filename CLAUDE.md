@@ -11,7 +11,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Phase 10 ("report-enrichment")** — Facial Assessments + per-feature scores/harmony + per-feature AI before/after (`FR-018`/`FR-022`). TOC `/report` live. **Open presentation gap:** ship **Home Overview** as post-completion landing (video first screen) — do not keep Welcome-dashboard cards; see `milestone2_home_and_report_spec.md`.
 - **Phase 11 ("AI Visual Features")** — hairstyle / outfit / aging (`FR-020`) live; generation may need retry after Gemini rate limits.
 
-Phases 12–13 (Chat, Settings/Billing) remain unstarted until each has its own `plans.md`. PayPal stays visible-disabled only (`BR-012`) — no working PayPal without client confirmation.
+**Milestone 2 is complete as of 2026-09-17** (confirmed by the user) — Phases 10–13, including the AI Beauty Assistant chat and Settings/Billing restructure, are implemented. PayPal stays visible-disabled only (`BR-012`) — no working PayPal without client confirmation. The pre-Milestone-3 state is preserved untouched on the `demo/milestone2-stable` branch for client demo purposes; active development continues on `feature/milestone2-next` (or its successors) and merges to `main` only once a milestone's implementation is done.
+
+**Milestone 3, five of six proposed phases implemented as of 2026-09-18 (not yet committed to git).** The delivery team proposed a feature set on 2026-09-17 by reviewing the live `qoves.com` reference site (the same reference business named in `BC-001`/`BC-002`). See `docs/milestone3_requirements.md` (`FR-023`–`FR-028`, all `[Recommendation]`) and `docs/milestone3_phase_plan.md` (Implementation Phases 14–19).
+
+- **Implemented:** Phase 16 `protocol-enrichment` (`FR-025`, cost/cadence/difficulty per recommendation), Phase 14 `metrics-expansion` (`FR-023`, ~29 new landmark-derived metrics), Phase 15 `recommendation-visuals` (`FR-024`, descoped to metadata-only tagging — no new AI generation, per client decision), Phase 18 `support-channel` (`FR-027`, Settings → Contact Us, email relay), Phase 19 `marketing-landing` (`FR-028`, new Benefits section, no fabricated testimonials). Each has its own `D:\zzz\<module>\plans.md`.
+- **Removed, not built:** Phase 17 `progress-tracking` (`FR-026`) — implemented 2026-09-17, then fully reverted 2026-09-18 at the client's explicit request ("I dont need the progress functionality remove it"). All code, its DB migration, and its module plan were deleted. See `docs/milestone3_phase_plan.md`'s Phase 17 section and `docs/milestone3_requirements.md`'s `FR-026` entry for the traceability record.
 
 This repo is a **from-scratch build**, two separate applications:
 

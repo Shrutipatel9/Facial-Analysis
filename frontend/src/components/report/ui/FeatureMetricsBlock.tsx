@@ -1,11 +1,22 @@
+"use client"
+
+import { useState } from "react"
 import { formatMetricValue, humanizeMetricKey } from "@/lib/report/metricLabels"
 import { meridian } from "@/lib/report/meridianTokens"
 import type { ReportMeasurement } from "@/lib/reports/reportApi"
+
+// Phase 14 (Milestone 3, FR-023) -- with more metrics per feature, the
+// "All metrics" list below would otherwise be a wall of 8-11+ rows.
+// Collapsed by default past this many rows, same boolean-toggle pattern
+// as ReportNav.tsx's openGroups state.
+const COLLAPSED_ROW_COUNT = 6
 
 /**
  * Feature metrics: small label/value cards + wider featured metric (screenshot layout).
  */
 export function FeatureMetricsBlock({ measurement }: { measurement: ReportMeasurement }) {
+  const [expanded, setExpanded] = useState(false)
+
   if (!measurement.available || !measurement.metrics || Object.keys(measurement.metrics).length === 0) {
     return measurement.note ? (
       <p className="text-xs leading-relaxed" style={{ color: meridian.ink.muted }}>
@@ -17,6 +28,8 @@ export function FeatureMetricsBlock({ measurement }: { measurement: ReportMeasur
   const entries = Object.entries(measurement.metrics)
   const [featured, ...rest] = entries
   const gridEntries = rest.slice(0, 4)
+  const visibleEntries = expanded ? entries : entries.slice(0, COLLAPSED_ROW_COUNT)
+  const hiddenCount = entries.length - visibleEntries.length
 
   return (
     <div className="space-y-4">
@@ -62,7 +75,7 @@ export function FeatureMetricsBlock({ measurement }: { measurement: ReportMeasur
             All {humanizeMetricKey(featured[0]).split(" ")[0]} metrics
           </h4>
           <dl className="grid grid-cols-1 gap-x-10 gap-y-2 sm:grid-cols-2">
-            {entries.map(([key, value]) => (
+            {visibleEntries.map(([key, value]) => (
               <div key={key} className="flex items-baseline justify-between gap-3 border-b border-border/50 py-1.5">
                 <dt className="text-sm" style={{ color: meridian.accent.secondary }}>
                   {humanizeMetricKey(key)}
@@ -73,6 +86,16 @@ export function FeatureMetricsBlock({ measurement }: { measurement: ReportMeasur
               </div>
             ))}
           </dl>
+          {hiddenCount > 0 || expanded ? (
+            <button
+              type="button"
+              onClick={() => setExpanded((prev) => !prev)}
+              className="text-xs font-semibold tracking-wide"
+              style={{ color: meridian.accent.secondary }}
+            >
+              {expanded ? "Show less" : `Show ${hiddenCount} more metric${hiddenCount === 1 ? "" : "s"}`}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

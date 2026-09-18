@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import uuid
 from pathlib import Path
@@ -14,6 +15,7 @@ from app.models.payment import Payment
 from app.models.report import Report
 from app.models.report_feature_visual import ReportFeatureVisual
 from app.models.report_pdf_blob import ReportPdfBlob
+from app.services.ai_narrative_service import _FEATURE_SUBSECTIONS
 from app.services.analysis_service import run_analysis_pipeline
 from app.services.facial_assessment_service import ASSESSMENT_CATEGORIES
 from app.services.facial_measurement_service import ANALYSIS_FEATURES
@@ -139,6 +141,23 @@ class TestCreateReport:
         assert set(body["full"]["recommendations"].keys()) == {"at_home", "otc_skincare", "in_clinic"}
         # Real AI text, since narrative always runs as part of the paid pipeline.
         assert body["teaser"]["feature_summaries"]["hair"] == "hair"
+
+        # FR-025 (Milestone 3) -- every recommendation item now carries
+        # structured cost/cadence/time_to_effect/difficulty metadata, not
+        # just a bare string, and it survives the full pipeline -> assembly
+        # -> API response round trip. The ai_recorder fixture's fake
+        # "Use a daily moisturizer." idea matches an OTC keyword.
+        otc_items = body["full"]["recommendations"]["otc_skincare"]
+        assert any(item["cost"] == "$15-25" and item["difficulty"] == "Easy" for item in otc_items)
+        # FR-024 -- category/risk_level/product_or_method tags survive the
+        # same round trip.
+        assert any(
+            item["category"] == "Cosmetic" and item["risk_level"] == "Low" and item["product_or_method"]
+            for item in otc_items
+        )
+        # Same underlying data, surfaced per-feature too.
+        hair_potential = body["full"]["features"]["hair"]["projected_potential"]
+        assert hair_potential[0]["cadence"] == "Nightly"
 
     async def test_second_create_is_idempotent(
         self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
@@ -388,6 +407,122 @@ class TestReportPdf:
         assert resp.headers["content-disposition"] == f'attachment; filename="facial_report_{created_date}.pdf"'
 
 
+def _long_sentence_block(count: int, label: str) -> str:
+    """Approximates the length/shape of the real, more-descriptive AI
+    output (2026-09-18 prompt change asking for 8-12 sentence sub-sections,
+    2-3 sentence strengths/areas_of_note, and substantial 5-8 sentence
+    closing-recommendation paragraphs) without any real AI call -- pure
+    synthetic text, only used to stress-test PDF layout/pagination against
+    realistic content length."""
+    return " ".join(f"This is descriptive sentence number {i + 1} about {label}." for i in range(count))
+
+
+def _fake_long_completion_response() -> SimpleNamespace:
+    """Same shape as tests.conftest._fake_completion_response, but with
+    realistically long content in every free-text field, to verify PDF
+    generation (particularly the fixed-width two-column Closing
+    Recommendations table, report_pdf_service._closing_recommendations_
+    flowables) doesn't crash or silently clip once real narrative length
+    grows to match the 2026-09-18 prompt change. Zero real API cost --
+    this is a fully synthetic, monkeypatched response."""
+    closing_paragraphs = [_long_sentence_block(7, f"closing topic {i + 1}") for i in range(4)]
+    content = json.dumps(
+        {
+            "features": {
+                feature: {
+                    "sections": {
+                        heading: _long_sentence_block(10, f"{feature} {heading}")
+                        for heading in _FEATURE_SUBSECTIONS[feature]
+                    },
+                    "summary_callout": f"{feature.capitalize()} summary.",
+                    "strengths": _long_sentence_block(3, f"{feature} strengths"),
+                    "areas_of_note": _long_sentence_block(3, f"{feature} areas of note"),
+                    "recommendation_ideas": [
+                        {
+                            "text": f"A detailed recommendation for {feature}.",
+                            "cost": "$15-25",
+                            "cadence": "Nightly",
+                            "time_to_effect": "2-4 weeks",
+                            "difficulty": "Easy",
+                            "category": "Cosmetic",
+                            "risk_level": "Low",
+                            "product_or_method": "Sample Product",
+                        }
+                    ],
+                }
+                for feature in ANALYSIS_FEATURES
+            },
+            "closing_recommendations": "\n\n".join(closing_paragraphs),
+        }
+    )
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+
+class TestReportPdfWithLongContent:
+    """2026-09-18: the AI narrative prompt was expanded to ask for
+    materially longer, more descriptive sections (8-12 sentences per
+    sub-section, up from 4-7; longer strengths/areas_of_note; more
+    substantial closing-recommendation paragraphs). This class verifies
+    PDF generation handles that realistic-length content correctly --
+    entirely via a synthetic monkeypatched AI response, never a real
+    OpenAI call, per the standing rule that this repo's automated tests
+    must never spend real AI vendor credit."""
+
+    async def test_pdf_generates_successfully_with_long_narrative_content(
+        self, client: AsyncClient, email_sender, db: AsyncSession, monkeypatch
+    ):
+        async def _create(**kwargs):
+            if kwargs.get("stream"):
+                raise AssertionError("not expected for narrative generation")
+            return _fake_long_completion_response()
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        monkeypatch.setattr("app.services.ai_narrative_service.get_ai_client", lambda: fake_client)
+
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-pdf-long@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+        report_id = (await client.post("/reports", headers=headers)).json()["id"]
+
+        resp = await client.get(f"/reports/{report_id}/pdf", headers=headers)
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"] == "application/pdf"
+        assert resp.content.startswith(b"%PDF")
+
+        # A real, non-trivial document was produced (not a truncated/empty
+        # stub) -- every feature plus front matter/closing/appendix pages.
+        page_objects = re.findall(rb"/Type\s*/Page[^s]", resp.content)
+        assert len(page_objects) >= _FRONT_MATTER_PAGE_COUNT + len(ANALYSIS_FEATURES) + 1 + 1
+
+    async def test_report_json_response_also_carries_the_long_content(
+        self, client: AsyncClient, email_sender, db: AsyncSession, monkeypatch
+    ):
+        """Sanity check that the long content actually reached the API
+        response (not just silently dropped somewhere in assembly) before
+        trusting the PDF test above."""
+
+        async def _create(**kwargs):
+            if kwargs.get("stream"):
+                raise AssertionError("not expected for narrative generation")
+            return _fake_long_completion_response()
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        monkeypatch.setattr("app.services.ai_narrative_service.get_ai_client", lambda: fake_client)
+
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-long-json@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+        resp = await client.post("/reports", headers=headers)
+        assert resp.status_code == 200, resp.text
+        full = resp.json()["full"]
+
+        jaw_sections = full["features"]["jaw"]["sections"]
+        assert jaw_sections
+        longest_section = max(jaw_sections.values(), key=len)
+        assert len(longest_section.split(".")) >= 8  # ~10 synthetic sentences
+        assert len(full["closing_recommendations"]) > len(
+            "Consider seeing a dermatologist for a full assessment."
+        )
+
+
 class TestReportFeatureImage:
     """Feature-crop images are CV-derived, available as soon as the paid
     analysis pipeline completes -- same timing as the rest of the report."""
@@ -449,6 +584,54 @@ class TestFacialAssessmentsInReport:
         # A real analyzed photo (pass_all.jpg) should produce available
         # assessments, not an all-unavailable placeholder.
         assert full["facial_assessments"]["dimorphism"]["available"] is True
+
+
+class TestLegacyRecommendationShapeBackwardCompatibility:
+    """FR-025 (Milestone 3) -- `Report.sections` is frozen at creation time
+    (assemble_sections never re-runs on read), so any report created before
+    this change has `recommendations`/`projected_potential` as bare
+    strings forever. GET /reports/{id} must still succeed against that old
+    shape, not 500 on RecommendationItemOut validation."""
+
+    async def test_get_report_normalizes_a_pre_fr025_persisted_shape(
+        self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
+    ):
+        headers, user_id = await _auth_headers_and_user_id(client, email_sender, "rp-legacy-shape@example.com")
+        await _complete_paid_analysis(client, headers, db, user_id)
+        report_id = (await client.post("/reports", headers=headers)).json()["id"]
+
+        # Overwrite the freshly-assembled (already-structured) sections
+        # with the pre-FR-025 bare-string shape, simulating a report that
+        # was assembled before this change shipped.
+        report = await db.get(Report, uuid.UUID(report_id))
+        assert report is not None
+        legacy_sections = dict(report.sections)
+        legacy_sections["recommendations"] = {
+            "at_home": ["Stay hydrated and get enough sleep."],
+            "otc_skincare": ["Use a daily moisturizer."],
+            "in_clinic": [],
+        }
+        legacy_sections["features"] = {
+            feature: {**data, "projected_potential": [f"Legacy idea for {feature}."]}
+            for feature, data in legacy_sections["features"].items()
+        }
+        report.sections = legacy_sections
+        await db.commit()
+
+        resp = await client.get(f"/reports/{report_id}", headers=headers)
+        assert resp.status_code == 200, resp.text
+        full = resp.json()["full"]
+        null_tags = {
+            "cost": None,
+            "cadence": None,
+            "time_to_effect": None,
+            "difficulty": None,
+            "category": None,
+            "risk_level": None,
+            "product_or_method": None,
+        }
+        assert full["recommendations"]["otc_skincare"] == [{"text": "Use a daily moisturizer.", **null_tags}]
+        assert full["features"]["hair"]["projected_potential"] == [{"text": "Legacy idea for hair.", **null_tags}]
 
     async def test_analysis_duration_is_a_real_positive_elapsed_time(
         self, client: AsyncClient, email_sender, ai_recorder, db: AsyncSession
