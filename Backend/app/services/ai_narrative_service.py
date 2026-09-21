@@ -501,7 +501,7 @@ async def generate_narrative(
             # that so a genuinely long response still has headroom rather
             # than being silently truncated (which would fail JSON parsing
             # in _parse_response).
-            max_tokens=16000,
+            max_tokens=8192,
         )
     except OpenAIError as exc:
         raise AIProviderError(f"AI provider request failed: {exc}") from exc

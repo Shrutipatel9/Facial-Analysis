@@ -100,12 +100,18 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     ai_base_url: str = Field(default="https://api.openai.com/v1", alias="AI_BASE_URL")
     ai_model: str = Field(default="gpt-4o", alias="AI_MODEL")
-    # 120 -> 180 (2026-09-17): the expanded per-feature `sections` content
-    # (ai_narrative_service.py's _FEATURE_SUBSECTIONS) meaningfully grew the
-    # response size the model has to generate -- more output tokens takes
-    # proportionally longer, so the old 120s budget cuts it closer than
-    # before.
-    ai_request_timeout_seconds: int = Field(default=180, alias="AI_REQUEST_TIMEOUT_SECONDS")
+    # 120 -> 180 (2026-09-17) -> 900 (2026-09-21): each bump follows the
+    # prompt asking for proportionally more output. 2026-09-18's change to
+    # 8-12 sentence sub-sections (was 4-7) plus longer strengths/
+    # areas_of_note/closing_recommendations, with max_tokens raised to
+    # 16000, plausibly pushed real generation time past 180s -- a timeout
+    # here surfaces as a caught OpenAIError (see generate_narrative), which
+    # analysis_service.run_analysis_pipeline treats as "narrative failed,
+    # keep the completed CV measurements" (see its docstring), so the user
+    # sees a report with numbers but no descriptive text and no obvious
+    # error. User has explicitly said analysis may take up to 15 minutes --
+    # 900s gives real generation the room that tolerance implies.
+    ai_request_timeout_seconds: int = Field(default=900, alias="AI_REQUEST_TIMEOUT_SECONDS")
 
     # --- AI image generation (FR-022, Milestone 2) ---
     # ASM-011: vendor was Google Gemini 2.5 Flash Image, user-confirmed
