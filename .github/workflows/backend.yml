@@ -1,0 +1,82 @@
+name: Backend
+
+on:
+  push:
+    paths:
+      - "Backend/**"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    paths:
+      - "Backend/**"
+      - ".github/workflows/backend.yml"
+
+defaults:
+  run:
+    working-directory: Backend
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: facial_analysis
+          POSTGRES_PASSWORD: facial_analysis
+          POSTGRES_DB: facial_analysis
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U facial_analysis -d facial_analysis"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Every AI-related key intentionally blank -- tests/conftest.py forces
+      # OPENAI_API_KEY="" the same way regardless, but CI must never even
+      # have a real key in scope to accidentally use. Matches this repo's
+      # own "don't waste tokens on random testing" posture: this suite is
+      # fully mocked and must stay that way in CI too.
+      DATABASE_URL: postgresql+asyncpg://facial_analysis:facial_analysis@localhost:5433/facial_analysis_test
+      JWT_SECRET: ci-test-secret-not-for-production-use-only
+      OTP_PEPPER: ci-test-pepper-not-for-production-use-only
+      CORS_ORIGINS: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Mypy
+        run: uv run mypy app
+
+      - name: Wait for Postgres
+        run: |
+          until pg_isready -h localhost -p 5433 -U facial_analysis; do sleep 1; done
+        env:
+          PGPASSWORD: facial_analysis
+
+      - name: Create test database
+        run: |
+          PGPASSWORD=facial_analysis psql -h localhost -p 5433 -U facial_analysis -d facial_analysis \
+            -c "CREATE DATABASE facial_analysis_test;"
+
+      - name: Alembic migration smoke test
+        # Verifies all migrations apply cleanly from empty -- pytest's own
+        # schema setup uses Base.metadata.create_all (tests/conftest.py),
+        # not Alembic, so nothing else exercises this path.
+        run: uv run alembic upgrade head
+
+      - name: Pytest
+        run: uv run pytest

@@ -5,10 +5,11 @@ D:\\zzz\\ai-visuals-hairstyle\\plans.md.
 
 import uuid
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.models.ai_visual import AiVisual
 from app.models.user import User
@@ -33,13 +34,23 @@ def _to_out(row: AiVisual) -> AiVisualOut:
 
 
 @router.post("/{kind}", response_model=list[AiVisualOut])
+@limiter.limit("10/hour")
 async def create_visuals(
+    request: Request,
     kind: AiVisualKind,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[AiVisualOut]:
     """Lazy get-or-create + trigger-once (BR-006) -- idempotent/safe to call
-    repeatedly once rows exist, same posture as POST /reports."""
+    repeatedly once rows exist, same posture as POST /reports. Rate limited
+    per exact path (slowapi's default key includes the request path, so
+    each `{kind}` value -- hairstyle/outfit/aging/potential -- gets its own
+    independent 10/hour bucket, confirmed via
+    tests/integration/test_rate_limiting.py), slightly more generous than a
+    pure one-shot trigger (5/hour, see trigger_analysis) since a legitimate
+    retry-after-transient-failure flow (get_or_create_visuals' own
+    retryable-failure reset) reuses this same endpoint rather than a
+    separate retry action."""
     rows = await ai_visual_service.get_or_create_visuals(db, user.id, kind)
     return [_to_out(row) for row in rows]
 

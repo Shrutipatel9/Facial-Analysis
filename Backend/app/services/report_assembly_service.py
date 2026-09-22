@@ -12,11 +12,18 @@ already synthesized by Phase 4's own AI call. This keeps report generation
 a fast, synchronous, cost-free data transform (BR-006 -- no new AI spend).
 
 FR-012's three recommendation tiers (at-home/lifestyle, OTC/skincare-active,
-in-clinic) are produced by a first-pass keyword heuristic over the existing
-flat `recommendation_ideas` strings, not a dedicated AI call or a change to
-Phase 4's already-implemented prompt -- delivery-team decision (ASM-007),
-same "reasonable default, expect a tuning pass" posture as the photo-
-validation thresholds (ASM-002) and the CV measurement formulas.
+in-clinic) were originally produced entirely by a first-pass keyword
+heuristic over the existing flat `recommendation_ideas` strings -- delivery-
+team decision (ASM-007), same "reasonable default, expect a tuning pass"
+posture as the photo-validation thresholds (ASM-002) and the CV measurement
+formulas. FR-029 (Milestone 4) upgraded this: Phase 4's narrative-generation
+prompt now asks for a `tier` field directly on each recommendation_ideas
+item (no new AI call -- one more field on the same structured output), and
+`_idea_tier` below prefers that AI-classified value when present. The
+keyword heuristic (`_classify_one`) never goes away, though -- it's the
+required fallback for every report persisted before this field existed,
+forever (no backfill migration touches existing data, same posture as
+every other FR-024/FR-025 optional field).
 
 Payment now gates the START of analysis itself (analysis_service.
 trigger_analysis, see D:\\zzz\\payment\\plans.md) -- a Report can only ever
@@ -136,6 +143,26 @@ def _classify_one(text: str) -> str:
     return "at_home"
 
 
+_RECOMMENDATION_TIERS = ("at_home", "otc_skincare", "in_clinic")
+
+
+def _idea_tier(idea: Any) -> str:
+    """FR-029 (Milestone 4) -- prefers the AI-classified `tier` field
+    (ai_narrative_service.py's _ALLOWED_RECOMMENDATION_TIERS) when `idea`
+    is the structured-object shape and carries a valid one, falling back
+    to the keyword heuristic (_classify_one) otherwise. The fallback is
+    required, not a temporary bridge: every report persisted before this
+    field existed (and any live response where the model returned null)
+    has no such key, and no backfill migration will ever add one -- same
+    "coexist forever" posture as every other FR-024/FR-025 optional
+    field's fallback."""
+    if isinstance(idea, dict):
+        tier = idea.get("tier")
+        if tier in _RECOMMENDATION_TIERS:
+            return tier
+    return _classify_one(recommendation_text(idea))
+
+
 def recommendation_text(idea: Any) -> str:
     """FR-025 (Milestone 3) -- extracts display text from one recommendation
     idea, tolerating both the pre-Milestone-3 bare-string shape and the
@@ -171,7 +198,9 @@ def normalize_recommendation_item(idea: Any) -> dict[str, Any] | None:
         "text": text,
         "cost": idea.get("cost") if is_dict and isinstance(idea.get("cost"), str) else None,
         "cadence": idea.get("cadence") if is_dict and isinstance(idea.get("cadence"), str) else None,
-        "time_to_effect": idea.get("time_to_effect") if is_dict and isinstance(idea.get("time_to_effect"), str) else None,
+        "time_to_effect": (
+            idea.get("time_to_effect") if is_dict and isinstance(idea.get("time_to_effect"), str) else None
+        ),
         "difficulty": difficulty if difficulty in ("Easy", "Medium", "Hard") else None,
         "category": category if category in ("Cosmetic", "Lifestyle", "Clinical") else None,
         "risk_level": risk_level if risk_level in ("Low", "Medium", "High") else None,
@@ -187,15 +216,15 @@ def feature_recommendation_tier(recommendation_ideas: list[Any]) -> str | None:
     produces), for a per-feature caption on the PDF's feature pages
     (report_pdf_service.py's `_TIER_LABELS`/`_feature_flowables`) and,
     matching it, /report's ProtocolSection.tsx. Reuses the exact same
-    `_classify_one` heuristic and precedence (in_clinic > otc_skincare >
-    at_home, i.e. the most clinical idea present wins) rather than a new
-    rule -- a feature's tier is "the highest tier any one of its own ideas
-    falls into". Returns None when a feature has no recommendation ideas at
-    all (nothing to caption). Accepts either the legacy bare-string or the
-    FR-025 structured-object shape per idea via `recommendation_text`."""
+    `_idea_tier` precedence (in_clinic > otc_skincare > at_home, i.e. the
+    most clinical idea present wins) rather than a new rule -- a feature's
+    tier is "the highest tier any one of its own ideas falls into".
+    Returns None when a feature has no recommendation ideas at all
+    (nothing to caption). Accepts either the legacy bare-string or the
+    FR-025 structured-object shape per idea via `_idea_tier`."""
     if not recommendation_ideas:
         return None
-    tiers_present = {_classify_one(recommendation_text(idea)) for idea in recommendation_ideas}
+    tiers_present = {_idea_tier(idea) for idea in recommendation_ideas}
     for tier in ("in_clinic", "otc_skincare", "at_home"):
         if tier in tiers_present:
             return tier
@@ -206,7 +235,8 @@ def classify_recommendations(features: dict[str, dict[str, Any]]) -> dict[str, l
     """Buckets every feature's recommendation_ideas into the three FR-012
     tiers, normalizing each item to the FR-025 structured-object shape
     (RecommendationItemOut) along the way -- see normalize_recommendation_item.
-    First-pass keyword heuristic -- see module docstring.
+    AI-classified when available, keyword-heuristic fallback otherwise --
+    see module docstring and `_idea_tier`.
 
     Previously also sentence-split `closing_recommendations` (the 4-
     paragraph narrative synthesis) into tier items; removed 2026-09-17
@@ -228,7 +258,7 @@ def classify_recommendations(features: dict[str, dict[str, Any]]) -> dict[str, l
             normalized = normalize_recommendation_item(idea)
             if normalized is None:
                 continue
-            tiers[_classify_one(normalized["text"])].append(normalized)
+            tiers[_idea_tier(idea)].append(normalized)
 
     return tiers
 

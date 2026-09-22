@@ -36,6 +36,20 @@ logger = logging.getLogger(__name__)
 
 _FALLBACK_MESSAGE = "Sorry, something went wrong generating a response. Please try asking again."
 
+# FR-030 (Milestone 4) -- a separate, focused prompt for _maybe_compact's
+# summarization call, not the main assistant persona above: this call's
+# only job is producing compact context for a *future* call, never a
+# user-facing reply, so it gets its own short instruction rather than
+# reusing _build_system_prompt's much longer persona/report-grounding text.
+_COMPACTION_SYSTEM_PROMPT = (
+    "Summarize the following AI Beauty Assistant conversation for your own future context, in 3-5 "
+    "sentences of plain prose (no bullet points, no headings). Capture the topics already discussed, "
+    "the user's stated concerns or preferences, and anything already recommended or explained -- so a "
+    "later reply can stay consistent with it without re-reading the full transcript. Never repeat any "
+    "medical condition, medication, or allergy information even if it appeared in the conversation -- "
+    "omit it entirely, same as the main assistant's own instructions."
+)
+
 
 @dataclass
 class PreparedReply:
@@ -101,7 +115,9 @@ def _feature_grounding_line(name: str, data: dict[str, Any]) -> str:
     return f"- {name}: {'; '.join(parts)} (internal score {data.get('score')}/100)"
 
 
-def _build_system_prompt(sections: dict[str, Any], questionnaire_context: str) -> str:
+def _build_system_prompt(
+    sections: dict[str, Any], questionnaire_context: str, conversation_summary: str | None = None
+) -> str:
     feature_scores = sections.get("feature_scores") or {}
     feature_lines = [
         _feature_grounding_line(feature, data)
@@ -115,6 +131,17 @@ def _build_system_prompt(sections: dict[str, Any], questionnaire_context: str) -
         for category, data in facial_assessments.items()
         if isinstance(data, dict) and data.get("available")
     ]
+
+    # FR-030 (Milestone 4): only present once _maybe_compact has actually
+    # run for this conversation -- older turns aren't in the raw message
+    # list sent below, so this is the model's only way to stay aware of
+    # them.
+    summary_clause = (
+        f"Summary of earlier parts of this conversation (already discussed, do not repeat as new): "
+        f"{conversation_summary}\n\n"
+        if conversation_summary
+        else ""
+    )
 
     return (
         "You are a friendly, informational AI Beauty Assistant for a non-surgical aesthetics platform. "
@@ -130,6 +157,7 @@ def _build_system_prompt(sections: dict[str, Any], questionnaire_context: str) -
         f"Facial assessments:\n{chr(10).join(assessment_lines) or 'Not available.'}\n\n"
         f"Report's closing recommendations: {sections.get('closing_recommendations', '')}\n\n"
         f"Questionnaire context (question: answer, one per line):\n{questionnaire_context}\n\n"
+        f"{summary_clause}"
         "Tone: strictly informational, never diagnostic or prescriptive -- matches this report's own "
         "existing framing. Never claim a medical diagnosis, never say a treatment is required, always "
         "frame any suggestion as something to discuss with a qualified professional, not an instruction. "
@@ -182,6 +210,59 @@ async def prepare_reply(db: AsyncSession, user_id: uuid.UUID, content: str) -> P
     return PreparedReply(conversation=conversation, sections=report.sections, refused=refused)
 
 
+async def _maybe_compact(db: AsyncSession, conversation: Conversation, history: list[Message]) -> list[Message]:
+    """FR-030 (Milestone 4) -- bounds a long-lived conversation's context
+    growth. A no-op (returns `history` unchanged) until message count
+    exceeds `chat_compaction_threshold_messages`; from then on, summarizes
+    everything except the most recent `chat_compaction_keep_recent_messages`
+    into `conversation.summary` (folding any prior summary forward, so
+    context from before an earlier compaction isn't lost) and returns only
+    the recent window -- the caller sends that plus the summary (via
+    _build_system_prompt's optional clause) instead of full history.
+
+    Never deletes or mutates a Message row -- get_history/the frontend's
+    message list are completely unaffected; only what gets sent to the
+    model is bounded. Makes one real AI call when it actually triggers
+    (unlike the rest of this module's cost-conscious posture) -- see
+    milestone4_requirements.md's FR-030 for why this is accepted.
+
+    On a summarization failure, falls back to sending the full history for
+    this turn rather than silently dropping context -- same "never fail
+    the user-facing reply over a best-effort step" posture as
+    analysis_service's AI-visuals auto-start."""
+    settings = get_settings()
+    if len(history) <= settings.chat_compaction_threshold_messages:
+        return history
+
+    keep_recent = settings.chat_compaction_keep_recent_messages
+    older, recent = history[:-keep_recent], history[-keep_recent:]
+
+    transcript_parts = []
+    if conversation.summary:
+        transcript_parts.append(f"[Earlier conversation summary]: {conversation.summary}")
+    transcript_parts.extend(f"{message.role}: {message.content}" for message in older)
+
+    client = ai_narrative_service.get_ai_client()
+    try:
+        response = await client.chat.completions.create(
+            model=settings.ai_model,
+            messages=[
+                {"role": "system", "content": _COMPACTION_SYSTEM_PROMPT},
+                {"role": "user", "content": "\n".join(transcript_parts)},
+            ],
+        )
+        summary_text = response.choices[0].message.content if response.choices else None
+    except OpenAIError:
+        logger.warning("Chat compaction summarization failed for conversation %s", conversation.id)
+        return history
+
+    if summary_text:
+        conversation.summary = summary_text
+        await db.commit()
+
+    return recent
+
+
 async def stream_reply(db: AsyncSession, prepared: PreparedReply) -> AsyncGenerator[str, None]:
     """Pure streaming generator -- every exception-raising precondition has
     already run in prepare_reply by the time this is called, so nothing in
@@ -189,7 +270,9 @@ async def stream_reply(db: AsyncSession, prepared: PreparedReply) -> AsyncGenera
     in the user's report + questionnaire + full message history, persisting
     the complete text as the assistant's message once streaming finishes (or
     a graceful fallback on a provider error -- a completed exchange never
-    ends without a persisted assistant row)."""
+    ends without a persisted assistant row). FR-030 (Milestone 4): history
+    sent to the model is bounded via _maybe_compact once a conversation
+    gets long -- see that function's own docstring."""
     conversation = prepared.conversation
 
     if prepared.refused:
@@ -197,15 +280,16 @@ async def stream_reply(db: AsyncSession, prepared: PreparedReply) -> AsyncGenera
         return
 
     history = await _load_messages(db, conversation.id)  # includes the user message persisted in prepare_reply
+    sendable_history = await _maybe_compact(db, conversation, history)
 
     questionnaire_response = await questionnaire_service.get_latest_response(db, conversation.user_id)
     questionnaire_context = format_questionnaire_context(
         questionnaire_response.answers if questionnaire_response is not None else {}
     )
-    system_prompt = _build_system_prompt(prepared.sections, questionnaire_context)
+    system_prompt = _build_system_prompt(prepared.sections, questionnaire_context, conversation.summary)
 
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
-    messages.extend({"role": message.role, "content": message.content} for message in history)
+    messages.extend({"role": message.role, "content": message.content} for message in sendable_history)
 
     settings = get_settings()
     # Qualified module access, not a direct `from ... import get_ai_client` --

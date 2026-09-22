@@ -4,10 +4,11 @@ app/services/analysis_service.py. See docs/api-specification.md §6.
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.analysis import AnalysisOut, AnalysisStatusResponse, TriggerAnalysisResponse
@@ -17,8 +18,9 @@ router = APIRouter(prefix="/analysis", tags=["analysis"])
 
 
 @router.post("", response_model=TriggerAnalysisResponse)
+@limiter.limit("5/hour")
 async def trigger_analysis(
-    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> TriggerAnalysisResponse:
     record = await analysis_service.trigger_analysis(db, user.id)
     return TriggerAnalysisResponse(id=record.id, status="processing")

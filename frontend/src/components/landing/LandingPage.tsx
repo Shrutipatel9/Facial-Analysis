@@ -63,14 +63,24 @@ export function LandingPage() {
         <div className="relative flex min-h-svh flex-col">
           <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-8">
             <Logo variant="inverted" size="md" className="text-2xl sm:text-[1.75rem]" />
-            <Button
-              variant="ghost"
-              className="h-10 rounded-full border border-white/20 bg-white/10 px-5 text-primary-foreground backdrop-blur-sm hover:bg-white/20 hover:text-primary-foreground"
-              render={<Link href="/signup" />}
-              nativeButton={false}
-            >
-              Sign up
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                className="hidden h-10 rounded-full px-4 text-sm text-primary-foreground/85 hover:bg-white/10 hover:text-primary-foreground sm:inline-flex"
+                render={<Link href="/insights" />}
+                nativeButton={false}
+              >
+                Insights
+              </Button>
+              <Button
+                variant="ghost"
+                className="h-10 rounded-full border border-white/20 bg-white/10 px-5 text-primary-foreground backdrop-blur-sm hover:bg-white/20 hover:text-primary-foreground"
+                render={<Link href="/signup" />}
+                nativeButton={false}
+              >
+                Sign up
+              </Button>
+            </div>
           </header>
 
           <main className="mx-auto grid w-full max-w-6xl flex-1 grid-cols-1 items-center gap-10 px-6 pb-20 lg:grid-cols-[1.05fr_0.95fr] lg:gap-6">

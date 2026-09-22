@@ -29,7 +29,12 @@ export function useAiVisualKind(kind: AiVisualKind) {
   }, [kind])
 
   useEffect(() => {
-    void load().catch((err) => setErrorMessage(getErrorMessage(err)))
+    // Deferred via a microtask, not called synchronously -- load() itself
+    // calls setErrorMessage(null) as its first statement (before any
+    // await), which would otherwise be a same-tick setState-in-effect.
+    void Promise.resolve()
+      .then(() => load())
+      .catch((err) => setErrorMessage(getErrorMessage(err)))
   }, [load])
 
   useEffect(() => {

@@ -56,7 +56,12 @@ async def _to_report_out(db: AsyncSession, user_id: uuid.UUID, record: Report) -
         }
         for feature, data in features.items()
     }
-    recommendations = {
+    # dict[str, Any], matching features_with_visual_status above -- pydantic
+    # coerces each list[dict[str, Any]] into list[RecommendationItemOut] at
+    # ReportFullContentOut construction time; an unannotated comprehension
+    # here would let mypy infer an overly-precise dict[Any, list[dict[str,
+    # Any]]] and reject that construction, even though it validates fine.
+    recommendations: dict[str, Any] = {
         tier: _normalized_recommendation_items(items) for tier, items in sections.get("recommendations", {}).items()
     }
 

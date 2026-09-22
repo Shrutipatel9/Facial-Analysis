@@ -27,12 +27,10 @@ from mediapipe.tasks.python.vision.face_detector import FaceDetectorResult
 from PIL import Image, UnidentifiedImageError
 
 from app.services.face_identity_service import (
-    IDENTITY_COSINE_DISTANCE_THRESHOLD as IDENTITY_MISMATCH_THRESHOLD,
+    IDENTITY_COSINE_DISTANCE_THRESHOLD as IDENTITY_MISMATCH_THRESHOLD,  # noqa: F401 -- re-exported for tests
 )
-from app.services.face_identity_service import (
-    IdentityCheckResult,
-    check_photo_set_identity as _check_photo_set_identity_impl,
-)
+from app.services.face_identity_service import IdentityCheckResult
+from app.services.face_identity_service import check_photo_set_identity as _check_photo_set_identity_impl
 
 pillow_heif.register_heif_opener()
 

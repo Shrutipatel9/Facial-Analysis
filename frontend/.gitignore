@@ -32,6 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the checked-in template documenting what those vars are --
+# same intent as Backend/.env.example, which the root .gitignore already
+# leaves trackable.
+!.env.local.example
 
 # vercel
 .vercel

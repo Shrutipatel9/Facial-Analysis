@@ -18,6 +18,7 @@ import logging
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import async_session_factory
@@ -97,6 +98,18 @@ async def generate_all_feature_visuals(report_id: uuid.UUID) -> None:
         )
         persisted_crops = {row.feature: row.content for row in image_rows.scalars().all()}
 
+        # Production hardening (Milestone 3.1, Phase 21): only actually
+        # missing/failed features are (re-)generated -- previously this
+        # iterated ANALYSIS_FEATURES unconditionally, which was only ever
+        # safe because nothing called this function a second time. Now the
+        # crash-recovery reconciler (app/services/reconciler_service.py)
+        # can resume a report's stuck rows, and a resume must never re-pay
+        # for a feature that already succeeded.
+        visual_rows = await session.execute(
+            select(ReportFeatureVisual).where(ReportFeatureVisual.report_id == str(report_id))
+        )
+        pending_features = {row.feature for row in visual_rows.scalars().all() if row.status != "generated"}
+
     semaphore = asyncio.Semaphore(settings.image_gen_max_concurrency)
     await asyncio.gather(
         *(
@@ -109,6 +122,7 @@ async def generate_all_feature_visuals(report_id: uuid.UUID) -> None:
                 max_retries=settings.image_gen_max_retries,
             )
             for feature in ANALYSIS_FEATURES
+            if feature in pending_features
         )
     )
 
@@ -127,6 +141,11 @@ async def _generate_one_feature_visual(
             row = await session.get(ReportFeatureVisual, {"report_id": str(report_id), "feature": feature})
             if row is None:
                 logger.error("generate_all_feature_visuals: no pending row for %s/%s", report_id, feature)
+                return
+            if row.status == "generated" and row.content is not None:
+                return
+            if row.status == "generating":
+                # Another worker already claimed this row.
                 return
 
             if source_image is None:
@@ -166,3 +185,20 @@ async def _generate_one_feature_visual(
             row.error_message = None
             row.error_reason = None
             await session.commit()
+
+
+async def reset_stuck_rows(db: AsyncSession, report_id: uuid.UUID) -> None:
+    """Reconciler-only (app/services/reconciler_service.py, Milestone 3.1
+    Phase 21) -- resets this report's ReportFeatureVisual rows still
+    "pending"/"generating" so the next generate_all_feature_visuals call
+    actually (re-)attempts them. Already-"generated" rows are untouched,
+    never regenerated -- this table has no lazy self-healing on read
+    (unlike AiVisual's get_or_create_visuals), so the reconciler's sweep is
+    this table's only recovery path."""
+    result = await db.execute(select(ReportFeatureVisual).where(ReportFeatureVisual.report_id == str(report_id)))
+    for row in result.scalars().all():
+        if row.status in ("pending", "generating"):
+            row.status = "pending"
+            row.error_reason = None
+            row.error_message = None
+    await db.commit()

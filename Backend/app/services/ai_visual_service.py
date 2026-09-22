@@ -87,6 +87,25 @@ async def _reset_for_retry(db: AsyncSession, rows: list[AiVisual]) -> None:
     await db.commit()
 
 
+async def reset_stuck_generating(db: AsyncSession, user_id: uuid.UUID, kind: str) -> None:
+    """Reconciler-only (app/services/reconciler_service.py, Milestone 3.1
+    Phase 21) -- resets a kind's row(s) still "generating" back to
+    "pending" so the next generate_all_visuals call actually re-attempts
+    them. Only ever one row per kind is "generating" at a time
+    (generate_all_visuals uses asyncio.Semaphore(1) for ai-visuals), so
+    this resets exactly the crash-orphaned row, never touching
+    already-"generated" siblings. Unlike _reset_for_retry above, this
+    never clears `content` -- a "generating" row never had content set
+    yet, so there's nothing to clear."""
+    rows = await _load_visuals(db, user_id, kind)
+    for row in rows:
+        if row.status == "generating":
+            row.status = "pending"
+            row.error_reason = None
+            row.error_message = None
+    await db.commit()
+
+
 
 async def _get_latest_completed_analysis(db: AsyncSession, user_id: uuid.UUID) -> FacialAnalysisResult | None:
     result = await db.execute(

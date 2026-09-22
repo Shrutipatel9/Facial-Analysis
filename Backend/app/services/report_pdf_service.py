@@ -973,14 +973,14 @@ def _protocol_overview_flowables(
     )
     half = (len(ANALYSIS_FEATURES) + 1) // 2
     left_features = list(ANALYSIS_FEATURES[:half])
-    right_features = list(ANALYSIS_FEATURES[half:])
+    right_features: list[str | None] = list(ANALYSIS_FEATURES[half:])
     right_features += [None] * (len(left_features) - len(right_features))
     checklist_rows = [
         [
             Paragraph(f"•  {_FEATURE_LABELS[left]}", styles["body"]),
             Paragraph(f"•  {_FEATURE_LABELS[right]}", styles["body"]) if right else "",
         ]
-        for left, right in zip(left_features, right_features)
+        for left, right in zip(left_features, right_features, strict=True)
     ]
     checklist = Table(checklist_rows, colWidths=[2.85 * inch, 2.85 * inch])
     checklist.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 2)]))
@@ -1296,7 +1296,12 @@ def _priority_features_flowables(styles: dict[str, ParagraphStyle], sections: di
         score = data["score"]
         tone = _score_tone_color(score)
         name_row = Table(
-            [[Paragraph(_FEATURE_LABELS[feature], styles["priority_name"]), Paragraph(f"{round(score)}", styles["priority_name"])]],
+            [
+                [
+                    Paragraph(_FEATURE_LABELS[feature], styles["priority_name"]),
+                    Paragraph(f"{round(score)}", styles["priority_name"]),
+                ]
+            ],
             colWidths=[bar_width - 0.4 * inch, 0.4 * inch],
         )
         name_row.setStyle(

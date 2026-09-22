@@ -8,7 +8,6 @@ from app.services.report_assembly_service import (
     recommendation_text,
 )
 
-
 _NULL_TAGS = {
     "cost": None,
     "cadence": None,
@@ -231,9 +230,10 @@ class TestClassifyRecommendations:
         assert [item["text"] for item in tiers["otc_skincare"]] == ["Try a vitamin C serum daily."]
 
     def test_clinic_keyword_classified_as_in_clinic(self):
-        features = {"jaw": {"recommendation_ideas": ["Consider seeing a dermatologist about jawline contouring."]}}
+        text = "Consider seeing a dermatologist about jawline contouring."
+        features = {"jaw": {"recommendation_ideas": [text]}}
         tiers = classify_recommendations(features)
-        assert [item["text"] for item in tiers["in_clinic"]] == ["Consider seeing a dermatologist about jawline contouring."]
+        assert [item["text"] for item in tiers["in_clinic"]] == [text]
 
     def test_generic_advice_defaults_to_at_home(self):
         features = {"skin": {"recommendation_ideas": ["Stay hydrated and get enough sleep."]}}
@@ -289,7 +289,8 @@ class TestClassifyRecommendations:
         }
 
     def test_invalid_difficulty_normalizes_to_none(self):
-        features = {"skin": {"recommendation_ideas": [{"text": "Try a vitamin C serum daily.", "difficulty": "Extreme"}]}}
+        idea = {"text": "Try a vitamin C serum daily.", "difficulty": "Extreme"}
+        features = {"skin": {"recommendation_ideas": [idea]}}
         tiers = classify_recommendations(features)
         assert tiers["otc_skincare"][0]["difficulty"] is None
 
@@ -297,6 +298,30 @@ class TestClassifyRecommendations:
         features = {"skin": {"recommendation_ideas": [{"cost": "$10"}, "Try a vitamin C serum daily."]}}
         tiers = classify_recommendations(features)
         assert len(tiers["otc_skincare"]) == 1
+
+    def test_ai_classified_tier_overrides_the_keyword_heuristic(self):
+        """FR-029 (Milestone 4) -- the AI-supplied tier field wins even
+        when it disagrees with what the keyword heuristic would have
+        guessed from the text alone."""
+        idea = {"text": "Stay hydrated and get enough sleep.", "tier": "in_clinic"}
+        features = {"skin": {"recommendation_ideas": [idea]}}
+        tiers = classify_recommendations(features)
+        assert tiers["in_clinic"][0]["text"] == "Stay hydrated and get enough sleep."
+        assert tiers["at_home"] == []
+
+    def test_null_ai_tier_falls_back_to_the_keyword_heuristic(self):
+        idea = {"text": "Try a vitamin C serum daily.", "tier": None}
+        features = {"skin": {"recommendation_ideas": [idea]}}
+        tiers = classify_recommendations(features)
+        assert tiers["otc_skincare"][0]["text"] == "Try a vitamin C serum daily."
+
+    def test_missing_tier_key_falls_back_to_the_keyword_heuristic(self):
+        """Every report persisted before FR-029 shipped has no `tier` key
+        at all -- must classify exactly as before."""
+        idea = {"text": "Try a vitamin C serum daily.", "cost": "$20-30"}
+        features = {"skin": {"recommendation_ideas": [idea]}}
+        tiers = classify_recommendations(features)
+        assert tiers["otc_skincare"][0]["text"] == "Try a vitamin C serum daily."
 
 
 class TestFeatureRecommendationTier:
@@ -325,6 +350,10 @@ class TestFeatureRecommendationTier:
 
     def test_still_accepts_fr025_structured_items(self):
         ideas = [{"text": "Try a vitamin C serum daily.", "cost": "$20-30"}]
+        assert feature_recommendation_tier(ideas) == "otc_skincare"
+
+    def test_ai_classified_tier_overrides_the_keyword_heuristic(self):
+        ideas = [{"text": "Stay hydrated and get enough sleep.", "tier": "otc_skincare"}]
         assert feature_recommendation_tier(ideas) == "otc_skincare"
 
 

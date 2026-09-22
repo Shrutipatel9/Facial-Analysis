@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey
+from sqlalchemy import DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -24,4 +24,12 @@ class Conversation(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # FR-030 (Milestone 4) -- a running summary of everything older than
+    # chat_service._maybe_compact's most-recent-N-messages window, folded
+    # forward each time compaction runs again. Null until the conversation
+    # first crosses the compaction threshold. Text, not a bounded String:
+    # an AI-generated summary is unpredictable length, same posture as
+    # AiVisual.error_message's own "unbounded, AI text is unpredictable
+    # length" precedent.
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Header, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.payments import CheckoutResponse, PaymentOut, PaymentStatusOut
@@ -15,8 +16,9 @@ router = APIRouter(prefix="/payments", tags=["payments"])
 
 
 @router.post("/checkout", response_model=CheckoutResponse)
+@limiter.limit("5/hour")
 async def create_checkout(
-    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> CheckoutResponse:
     checkout_url = await payment_service.create_checkout_session(db, user)
     return CheckoutResponse(checkout_url=checkout_url)

@@ -113,6 +113,14 @@ class Settings(BaseSettings):
     # 900s gives real generation the room that tolerance implies.
     ai_request_timeout_seconds: int = Field(default=900, alias="AI_REQUEST_TIMEOUT_SECONDS")
 
+    # --- Chat conversation compaction (Milestone 4, Phase 27, FR-030) ---
+    # app/services/chat_service.py's _maybe_compact. OI-5 (milestone4_
+    # requirements.md) -- these are stated starting points, not finalized;
+    # low-risk to tune later since compaction is an internal implementation
+    # detail invisible to the user's own message-history view.
+    chat_compaction_threshold_messages: int = Field(default=30, alias="CHAT_COMPACTION_THRESHOLD_MESSAGES")
+    chat_compaction_keep_recent_messages: int = Field(default=10, alias="CHAT_COMPACTION_KEEP_RECENT_MESSAGES")
+
     # --- AI image generation (FR-022, Milestone 2) ---
     # ASM-011: vendor was Google Gemini 2.5 Flash Image, user-confirmed
     # 2026-09-11 -- blocked all along by a zero-quota free-tier key (see
@@ -138,6 +146,26 @@ class Settings(BaseSettings):
     # Bounds how many of a report's 11 feature visuals generate concurrently
     # -- caps burst spend/rate-limit exposure, not a correctness concern.
     image_gen_max_concurrency: int = Field(default=3, alias="IMAGE_GEN_MAX_CONCURRENCY")
+
+    # --- Crash-recovery reconciler (Milestone 3.1, Phase 21) ---
+    # app/services/reconciler_service.py. A row is only ever considered
+    # crash-orphaned once it's been stuck past this threshold -- 20 minutes
+    # gives real headroom over ai_request_timeout_seconds (15 min) so a
+    # genuinely slow-but-healthy generation is never mistaken for a dead one.
+    reconciler_stuck_threshold_minutes: int = Field(default=20, alias="RECONCILER_STUCK_THRESHOLD_MINUTES")
+    # How often the periodic in-process sweep runs (app/main.py's lifespan).
+    reconciler_sweep_interval_seconds: int = Field(default=300, alias="RECONCILER_SWEEP_INTERVAL_SECONDS")
+    # Caps how many stuck units one sweep resumes at once -- avoids a
+    # restart storm hammering OpenAI/Gemini simultaneously.
+    reconciler_max_resumed_per_sweep: int = Field(default=5, alias="RECONCILER_MAX_RESUMED_PER_SWEEP")
+
+    # --- Error tracking (Milestone 3.1, Phase 23) ---
+    # app/core/error_tracking.py. Unset by default -- the integration is
+    # inert (never initializes the SDK, zero behavior change) until a real
+    # DSN is provisioned. No vendor account is created by this codebase;
+    # this only wires the code path so it can be activated with a config
+    # change, not a deploy.
+    sentry_dsn: str | None = Field(default=None, alias="SENTRY_DSN")
 
     # --- Payment (FR-015, FR-016, BR-001) ---
     # stripe_secret_key is intentionally optional here, same posture as

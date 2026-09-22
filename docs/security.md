@@ -46,16 +46,16 @@ Bearer-only APIs are not CSRF-sensitive (cross-site forms cannot set `Authorizat
 
 | Header | Frontend (Next.js) | Backend (FastAPI) |
 |---|---|---|
-| `Content-Security-Policy` | Yes (connect-src `'self'` for proxy) | — |
+| `Content-Security-Policy` | Yes (connect-src `'self'` for proxy) | Yes (`default-src 'none'; frame-ancestors 'none'` — Milestone 3.1 Phase 23, `app/core/security_headers.py`) |
 | `Strict-Transport-Security` | Production only | Production only |
 | `X-Frame-Options: DENY` | Yes | Yes |
 | `X-Content-Type-Options: nosniff` | Yes | Yes |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | Same |
 | `Permissions-Policy` | `camera=(self)` (photo-capture, `FR-005`, needs it — see `CameraCapture.tsx`); mic/geo/payment disabled | `camera=()`; mic/geo/payment disabled (the API never serves the camera-using page) |
 | `poweredByHeader` | Disabled | — |
-| OpenAPI `/docs` | — | Disabled outside development |
+| OpenAPI `/docs` | — | Disabled outside development ✅ (`app/main.py`'s `docs_url`/`redoc_url`/`openapi_url`, confirmed correct + regression-tested Milestone 3.1 Phase 23, `tests/integration/test_production_hardening.py`) |
 
-CSP currently allows `'unsafe-inline'` / `'unsafe-eval'` for Next.js compatibility; nonce-based CSP is a follow-up hardening step.
+CSP currently allows `'unsafe-inline'` / `'unsafe-eval'` for Next.js compatibility; nonce-based CSP is a follow-up hardening step. The backend's own CSP (added Phase 23) has no such exception — it's a pure JSON API with no HTML-rendering surface in production, so `default-src 'none'` is safe there (scoped to exclude `/docs`/`/redoc`/`/openapi.json` so Swagger's dev-only inline scripts still work).
 
 ## 6. Photo Validation as a Security/Quality Gate (BR-005, CON-006)
 

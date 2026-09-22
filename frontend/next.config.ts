@@ -30,6 +30,11 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Milestone 3.1, Phase 25 (production hardening) -- a self-contained
+  // .next/standalone build (server + only the node_modules it actually
+  // needs) is what frontend/Dockerfile's final image runs, instead of
+  // shipping the full node_modules tree into the image.
+  output: "standalone",
   async rewrites() {
     return [
       {

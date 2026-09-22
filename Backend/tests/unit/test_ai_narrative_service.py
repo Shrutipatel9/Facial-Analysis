@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from app.exceptions import AIProviderError
 from app.services.ai_narrative_service import (
     _FEATURE_ATTRIBUTE_KEYS,
@@ -166,6 +168,7 @@ _NULL_TAGS = {
     "category": None,
     "risk_level": None,
     "product_or_method": None,
+    "tier": None,
 }
 
 
@@ -180,6 +183,7 @@ class TestSanitizeRecommendationIdeas:
                 "category": "Cosmetic",
                 "risk_level": "Low",
                 "product_or_method": "Daily Moisturizer",
+                "tier": "otc_skincare",
             }
         ]
         assert _sanitize_recommendation_ideas(raw) == [
@@ -192,6 +196,7 @@ class TestSanitizeRecommendationIdeas:
                 "category": "Cosmetic",
                 "risk_level": "Low",
                 "product_or_method": "Daily Moisturizer",
+                "tier": "otc_skincare",
             }
         ]
 
@@ -215,6 +220,14 @@ class TestSanitizeRecommendationIdeas:
     def test_invalid_risk_level_is_dropped_to_none(self):
         raw = [{"text": "Valid idea.", "risk_level": "Extreme"}]
         assert _sanitize_recommendation_ideas(raw)[0]["risk_level"] is None
+
+    def test_valid_tier_passes_through(self):
+        raw = [{"text": "Valid idea.", "tier": "in_clinic"}]
+        assert _sanitize_recommendation_ideas(raw)[0]["tier"] == "in_clinic"
+
+    def test_invalid_tier_is_dropped_to_none(self):
+        raw = [{"text": "Valid idea.", "tier": "surgical"}]
+        assert _sanitize_recommendation_ideas(raw)[0]["tier"] is None
 
     def test_product_or_method_passes_through_when_a_string(self):
         raw = [{"text": "Valid idea.", "product_or_method": "Eyebrow Tinting Kit"}]
@@ -379,8 +392,5 @@ class TestParseResponse:
 
     def test_still_raises_when_features_key_is_missing(self):
         raw = json.dumps({"closing_recommendations": "c"})
-        try:
+        with pytest.raises(AIProviderError):
             _parse_response(raw)
-            assert False, "expected AIProviderError"
-        except AIProviderError:
-            pass

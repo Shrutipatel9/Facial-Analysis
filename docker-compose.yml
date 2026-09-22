@@ -1,0 +1,64 @@
+# Milestone 3.1, Phase 25 (production hardening) -- a production-shaped
+# stack for local "run it like production" verification, not itself a
+# deployment target (hosting is deliberately undecided, see
+# docs/deployment.md). Contrast with Backend/docker-compose.yml, which is
+# Postgres-only for local dev and publishes its port to the host --
+# this file's db service does NOT, matching docs/security.md §8's
+# "Postgres not publicly reachable" checklist item.
+#
+# Usage: cp Backend/.env.example Backend/.env.docker (fill in real values),
+# cp frontend/.env.local.example frontend/.env.docker (fill in real
+# values), then `docker compose up --build`. See docs/deployment.md.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: facial_analysis
+      POSTGRES_PASSWORD: facial_analysis
+      POSTGRES_DB: facial_analysis
+    volumes:
+      - facial_analysis_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U facial_analysis -d facial_analysis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./Backend
+    restart: unless-stopped
+    env_file:
+      - ./Backend/.env.docker
+    environment:
+      # Overrides whatever DATABASE_URL is in .env.docker -- "db" is only a
+      # resolvable hostname inside this compose network, never in a real
+      # deploy that hasn't chosen this same topology.
+      DATABASE_URL: postgresql+asyncpg://facial_analysis:facial_analysis@db:5432/facial_analysis
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    env_file:
+      - ./frontend/.env.docker
+    environment:
+      # next.config.ts reads this directly (not through Next's build-time
+      # `env` key), so it's read fresh at container start, not baked in at
+      # image build -- a runtime env var here, not a Docker build arg.
+      # "backend" is this compose network's hostname for the service above.
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  facial_analysis_pgdata:

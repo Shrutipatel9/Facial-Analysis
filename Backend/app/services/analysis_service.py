@@ -46,7 +46,7 @@ from app.models.questionnaire_response import QuestionnaireResponse
 from app.services import ai_visual_service, payment_service, photo_service, questionnaire_service
 from app.services.ai_narrative_service import generate_narrative
 from app.services.facial_assessment_service import extract_measurements_and_assessments
-from app.services.facial_measurement_service import ANALYSIS_FEATURES
+from app.services.facial_measurement_service import ANALYSIS_FEATURES, MeasurementResult
 from app.services.photo_storage import get_photo_storage
 from app.services.photo_validation_service import REQUIRED_ANGLES
 
@@ -151,9 +151,11 @@ async def run_analysis_pipeline(analysis_id: uuid.UUID) -> None:
     treated more leniently: the user already paid and has valid
     measurements, so the row still reaches "completed" with `narrative_result`
     left null rather than failing outright -- report_assembly_service's
-    templated fallback still gives the report something reasonable to show,
-    and a manual re-invoke of this function is the practical retry path
-    (see D:\\zzz\\payment\\plans.md's open items).
+    templated fallback still gives the report something reasonable to show.
+    If the row instead gets crash-orphaned mid-pipeline (process restart,
+    not a caught exception), resume_analysis_pipeline below is the
+    automated retry path (app/services/reconciler_service.py, Phase 21) --
+    a manual re-invoke of this function is still a valid fallback too.
 
     Once `status` reaches "completed", also auto-starts AI Visuals
     generation for all 3 kinds (hairstyle/outfit/aging) in the background --
@@ -186,6 +188,24 @@ async def run_analysis_pipeline(analysis_id: uuid.UUID) -> None:
                 await session.commit()
             return
 
+    await _run_narrative_and_complete(analysis_id, measurements, photos)
+
+
+async def _run_narrative_and_complete(
+    analysis_id: uuid.UUID, measurements: dict[str, MeasurementResult], photos: dict[str, bytes]
+) -> None:
+    """The paid narrative call, completion, and AI-visuals auto-start --
+    shared by run_analysis_pipeline (CV just succeeded in this same call)
+    and resume_analysis_pipeline (Phase 21: CV succeeded in a prior,
+    crash-orphaned attempt), so there is exactly one place this logic
+    lives. Own DB session, same convention as every background-task step
+    in this module."""
+    async with async_session_factory() as session:
+        record = await session.get(FacialAnalysisResult, analysis_id)
+        if record is None:
+            logger.error("_run_narrative_and_complete: analysis %s not found", analysis_id)
+            return
+
         try:
             questionnaire_response = await session.get(QuestionnaireResponse, record.questionnaire_response_id)
             narrative = await generate_narrative(
@@ -194,46 +214,99 @@ async def run_analysis_pipeline(analysis_id: uuid.UUID) -> None:
                 photos=photos,
             )
             record.narrative_result = narrative.to_dict()
-        except Exception:  # noqa: BLE001 -- broad on purpose, see docstring
+        except Exception:  # noqa: BLE001 -- broad on purpose, see run_analysis_pipeline's docstring
             logger.exception("Narrative generation failed for %s", analysis_id)
             await session.rollback()
             record = await session.get(FacialAnalysisResult, analysis_id)
             if record is None:
                 return
 
-        record.status = "completed"
-        record.completed_at = datetime.now(UTC)
-        await session.commit()
+        await _finalize_completed(session, record)
 
-        # 2026-09-17: auto-start AI Visuals (FR-020) generation for all 3
-        # kinds as soon as analysis completes, not lazily on the user's
-        # first /ai-visuals page visit -- a fresh visit was landing on a
-        # page that had only just triggered generation, showing pending/
-        # error states the user reported as "an error coming when I first
-        # visited the page". Reuses the exact same idempotent get_or_create
-        # (already trigger-once/BR-006-safe -- same call the page itself
-        # still makes on visit), so this is just an earlier first call, not
-        # new generation logic; by the time the user visits, generation is
-        # already in flight or done. Best-effort: a failure here must never
-        # fail the analysis pipeline itself, so each kind is isolated.
-        #
-        # Gated on openai_api_key actually being configured: with no key,
-        # get_or_create_visuals would still create AiVisual rows and spawn a
-        # background generate_all_visuals task per kind that's only *certain*
-        # to fail (each one discovers the missing key deeper inside, in
-        # _generate_one_visual) -- pure DB/task churn with no chance of a
-        # real image, for every single completed analysis. This is also
-        # exactly the test suite's own posture: OPENAI_API_KEY is
-        # deliberately blank there (tests/conftest.py, BR-006 -- real
-        # provider calls must never run in automated tests), so this guard
-        # keeps this new auto-start a no-op in tests without any test-only
-        # branching -- the same key-presence check production relies on.
-        if get_settings().openai_api_key:
-            for kind in ai_visual_service.VALID_KINDS:
-                try:
-                    await ai_visual_service.get_or_create_visuals(session, record.user_id, kind)
-                except Exception:  # noqa: BLE001 -- broad on purpose, see comment above
-                    logger.exception("Failed to auto-start AI visuals (%s) for %s", kind, record.user_id)
+
+async def _finalize_completed(session: AsyncSession, record: FacialAnalysisResult) -> None:
+    """Marks the row completed and best-effort auto-starts AI Visuals --
+    shared tail for a fresh narrative attempt (success or lenient failure)
+    and for resume_analysis_pipeline's narrative-already-done branch
+    (Phase 21: crashed between the narrative commit and this one)."""
+    record.status = "completed"
+    record.completed_at = datetime.now(UTC)
+    await session.commit()
+
+    # 2026-09-17: auto-start AI Visuals (FR-020) generation for all 3
+    # kinds as soon as analysis completes, not lazily on the user's
+    # first /ai-visuals page visit -- a fresh visit was landing on a
+    # page that had only just triggered generation, showing pending/
+    # error states the user reported as "an error coming when I first
+    # visited the page". Reuses the exact same idempotent get_or_create
+    # (already trigger-once/BR-006-safe -- same call the page itself
+    # still makes on visit), so this is just an earlier first call, not
+    # new generation logic; by the time the user visits, generation is
+    # already in flight or done. Best-effort: a failure here must never
+    # fail the analysis pipeline itself, so each kind is isolated.
+    #
+    # Gated on openai_api_key actually being configured: with no key,
+    # get_or_create_visuals would still create AiVisual rows and spawn a
+    # background generate_all_visuals task per kind that's only *certain*
+    # to fail (each one discovers the missing key deeper inside, in
+    # _generate_one_visual) -- pure DB/task churn with no chance of a
+    # real image, for every single completed analysis. This is also
+    # exactly the test suite's own posture: OPENAI_API_KEY is
+    # deliberately blank there (tests/conftest.py, BR-006 -- real
+    # provider calls must never run in automated tests), so this guard
+    # keeps this new auto-start a no-op in tests without any test-only
+    # branching -- the same key-presence check production relies on.
+    if get_settings().openai_api_key:
+        for kind in ai_visual_service.VALID_KINDS:
+            try:
+                await ai_visual_service.get_or_create_visuals(session, record.user_id, kind)
+            except Exception:  # noqa: BLE001 -- broad on purpose, see comment above
+                logger.exception("Failed to auto-start AI visuals (%s) for %s", kind, record.user_id)
+
+
+async def resume_analysis_pipeline(analysis_id: uuid.UUID) -> None:
+    """Reconciler-only entry point (app/services/reconciler_service.py,
+    Milestone 3.1 Phase 21) -- resumes a FacialAnalysisResult crash-
+    orphaned at "processing" (the process died mid-pipeline). Never
+    re-pays for an already-succeeded step:
+
+    - CV not done yet (facial_assessments still null): re-runs the whole
+      pipeline from scratch via run_analysis_pipeline. CV extraction is
+      free/fast/deterministic, so this is simpler than resuming mid-CV-step
+      and costs nothing extra.
+    - CV done, narrative not done: resumes only the paid narrative step,
+      reusing the already-persisted measurements rather than re-running CV.
+    - Both already done (crashed between the narrative commit and the
+      status="completed" commit): just finalizes -- no AI call at all.
+
+    Re-checks record.status == "processing" at each step (not just once at
+    the top) so a row already resolved by something else in the meantime
+    is left alone rather than double-processed.
+    """
+    async with async_session_factory() as session:
+        record = await session.get(FacialAnalysisResult, analysis_id)
+        if record is None or record.status != "processing":
+            return
+        cv_done = record.facial_assessments is not None
+        user_id = record.user_id
+
+    if not cv_done:
+        await run_analysis_pipeline(analysis_id)
+        return
+
+    async with async_session_factory() as session:
+        record = await session.get(FacialAnalysisResult, analysis_id)
+        if record is None or record.status != "processing":
+            return
+
+        if record.narrative_result is not None:
+            await _finalize_completed(session, record)
+            return
+
+        measurements = {feature: MeasurementResult(**value) for feature, value in record.measurements.items()}
+        photos = await _load_photo_bytes(session, user_id)
+
+    await _run_narrative_and_complete(analysis_id, measurements, photos)
 
 
 async def _load_photo_bytes(db: AsyncSession, user_id: uuid.UUID) -> dict[str, bytes]:

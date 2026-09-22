@@ -15,9 +15,20 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+
 export const metadata: Metadata = {
-  title: "FaceIQ",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "FaceIQ",
+    template: "%s | FaceIQ",
+  },
   description: "AI-driven facial aesthetics analysis platform.",
+  openGraph: {
+    title: "FaceIQ",
+    description: "AI-driven facial aesthetics analysis platform.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

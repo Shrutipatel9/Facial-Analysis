@@ -52,3 +52,12 @@ class FacialAnalysisResult(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Production hardening (Milestone 3.1, Phase 21) -- staleness signal for
+    # app/services/reconciler_service.py's crash-recovery sweep: a row still
+    # "processing" whose updated_at hasn't moved in a while means the
+    # background pipeline that was working on it died (process restart)
+    # rather than genuinely still being in flight. Same onupdate convention
+    # already used by AiVisual/ReportFeatureVisual.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

@@ -103,11 +103,15 @@ export function ReportNav({ scrollContainerRef }: { scrollContainerRef: React.Re
     // eslint-disable-next-line react-hooks/exhaustive-deps -- observed elements are static per report render
   }, [scrollContainerRef])
 
-  // Keep the group that owns the active section expanded.
+  // Keep the group that owns the active section expanded. Deferred via a
+  // microtask, not called synchronously, to avoid a same-tick
+  // setState-in-effect cascading render.
   useEffect(() => {
-    const owner = NAV_GROUPS.find((group) => group.items.some((item) => item.id === activeId))
-    if (!owner) return
-    setOpenGroups((prev) => (prev[owner.id] ? prev : { ...prev, [owner.id]: true }))
+    void Promise.resolve().then(() => {
+      const owner = NAV_GROUPS.find((group) => group.items.some((item) => item.id === activeId))
+      if (!owner) return
+      setOpenGroups((prev) => (prev[owner.id] ? prev : { ...prev, [owner.id]: true }))
+    })
   }, [activeId])
 
   function handleClick(id: string) {

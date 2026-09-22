@@ -214,11 +214,17 @@ _SYSTEM_PROMPT = (
     '"Cosmetic", "Lifestyle", or "Clinical" describing what kind of change the suggestion '
     'is, or JSON null if it genuinely doesn\'t fit one of those); "risk_level" (exactly one '
     'of "Low", "Medium", or "High" describing the suggestion\'s safety/reversibility risk, '
-    'or JSON null if not applicable); and "product_or_method" (a short name of the specific '
+    'or JSON null if not applicable); "product_or_method" (a short name of the specific '
     'product or method the suggestion refers to, e.g. "Eyebrow Tinting Kit" or "0.5% Retinol '
     'Serum", or JSON null if the suggestion is a general habit with no specific product or '
-    "method) -- use JSON null for any of these seven fields rather than guessing a value you "
-    "aren't confident about, same posture as every other optional field in this prompt)), "
+    'method); and "tier" (exactly one of "at_home", "otc_skincare", or "in_clinic" '
+    "classifying where this suggestion belongs: \"at_home\" for a free lifestyle/habit change "
+    "with no product or professional involved, \"otc_skincare\" for an over-the-counter "
+    'product a person buys and uses themselves, "in_clinic" for anything requiring a '
+    "professional/procedure/prescription -- or JSON null if the suggestion genuinely doesn't "
+    "fit one of those three -- use JSON null for any of these eight fields rather than "
+    "guessing a value you aren't confident about, same posture as every other optional field "
+    "in this prompt)), "
     '"closing_recommendations" (a synthesis across all 11 features, personalized per the goal/'
     "motivation guidance above, written as exactly 4 substantial, thorough paragraphs (5-8 "
     "sentences each, not short) separated by a blank line (\\n\\n) in this fixed order: (1) "
@@ -382,6 +388,12 @@ _ALLOWED_RECOMMENDATION_DIFFICULTIES = ("Easy", "Medium", "Hard")
 # value is dropped to None rather than passed through as free text.
 _ALLOWED_RECOMMENDATION_CATEGORIES = ("Cosmetic", "Lifestyle", "Clinical")
 _ALLOWED_RECOMMENDATION_RISK_LEVELS = ("Low", "Medium", "High")
+# FR-029 (Milestone 4) -- same closed-vocabulary posture: drives
+# report_assembly_service.classify_recommendations' tier bucketing
+# directly when present, only falling back to its keyword heuristic when
+# this is None (either the model returned null, or -- for every report
+# persisted before this field existed -- the key is simply absent).
+_ALLOWED_RECOMMENDATION_TIERS = ("at_home", "otc_skincare", "in_clinic")
 
 
 def _sanitize_recommendation_ideas(raw: Any) -> list[dict[str, Any]]:
@@ -415,6 +427,7 @@ def _sanitize_recommendation_ideas(raw: Any) -> list[dict[str, Any]]:
                     "category": None,
                     "risk_level": None,
                     "product_or_method": None,
+                    "tier": None,
                 }
             )
             continue
@@ -426,6 +439,7 @@ def _sanitize_recommendation_ideas(raw: Any) -> list[dict[str, Any]]:
         difficulty = item.get("difficulty")
         category = item.get("category")
         risk_level = item.get("risk_level")
+        tier = item.get("tier")
         sanitized.append(
             {
                 "text": text,
@@ -436,6 +450,7 @@ def _sanitize_recommendation_ideas(raw: Any) -> list[dict[str, Any]]:
                 "category": category if category in _ALLOWED_RECOMMENDATION_CATEGORIES else None,
                 "risk_level": risk_level if risk_level in _ALLOWED_RECOMMENDATION_RISK_LEVELS else None,
                 "product_or_method": _clean_str(item, "product_or_method"),
+                "tier": tier if tier in _ALLOWED_RECOMMENDATION_TIERS else None,
             }
         )
     return sanitized

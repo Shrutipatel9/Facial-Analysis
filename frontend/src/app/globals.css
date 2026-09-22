@@ -136,3 +136,26 @@
     @apply font-sans;
   }
 }
+
+/* FR-031 (Milestone 4) -- Insights article body typography. No
+   @tailwindcss/typography plugin dependency added for this -- a handful
+   of scoped rules using the existing design tokens covers the plain
+   heading/paragraph/list shapes real article prose actually needs. */
+.prose-insights h2 {
+  @apply mt-10 font-heading text-xl font-semibold tracking-tight first:mt-0;
+}
+.prose-insights h3 {
+  @apply mt-8 font-heading text-lg font-semibold tracking-tight;
+}
+.prose-insights p {
+  @apply mt-4 text-base leading-relaxed text-muted-foreground text-pretty;
+}
+.prose-insights ul {
+  @apply mt-4 list-disc space-y-2 pl-5 text-base leading-relaxed text-muted-foreground;
+}
+.prose-insights li::marker {
+  @apply text-primary;
+}
+.prose-insights strong {
+  @apply font-semibold text-foreground;
+}
